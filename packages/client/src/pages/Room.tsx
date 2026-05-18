@@ -120,6 +120,7 @@ export function Room({ roomId, isHost }: Props) {
   const kickPeerRef        = useRef<(peerId: string) => void>(noop);
   const banPeerRef         = useRef<(peerId: string) => void>(noop);
   const manifestStoreRef   = useRef<ManifestStore | null>(null);
+  const connectionManagerRef = useRef<ConnectionManager | null>(null);
   const endTurnRef         = useRef<() => void>(noop);
   const dispatchTurnRef    = useRef<(action: TurnAction) => void>(noop);
   const setRoomNameRef     = useRef<(name: string) => void>(noop);
@@ -346,10 +347,42 @@ export function Room({ roomId, isHost }: Props) {
       mgr.banPeer(peerId);
     };
 
+    connectionManagerRef.current = mgr;
+    mgr.setBundleTransportHandlers({
+      onOpen: (peerId, transport) => {
+        // Host's wire layer has already called transport.serve(...) for
+        // every entry in the BundleStore. Guests latch the transport onto
+        // AssetService so bundled-asset misses fall through to it.
+        if (!isHost) {
+          assetService.setBundleTransport(transport);
+          // Pre-warm preload:true bundled entries in parallel so guests
+          // don't pay the round-trip on first render. BundleCache hits
+          // short-circuit inside AssetService.resolveBundleBlob, so this
+          // is cheap on a warm re-join.
+          const ms = manifestStoreRef.current;
+          if (ms) {
+            for (const e of ms.getDraft().toArray()) {
+              if (e.bundled !== true || !e.preload) continue;
+              if      (e.type === 'image') void assetService.resolve(e.slug, 'image');
+              else if (e.type === 'model') void assetService.resolve(e.slug, 'model');
+              else if (e.type === 'sound') void assetService.resolve(e.slug, 'sound');
+            }
+          }
+        }
+        // `peerId` unused for now but threaded so future routing (e.g.
+        // mesh topologies) can pick the right transport per slug.
+        void peerId;
+      },
+      onClose: (peerId) => {
+        void peerId;
+        if (!isHost) assetService.setBundleTransport(undefined);
+      },
+    });
     if (isHost) mgr.hostRoom(SIGNALING_URL, roomId, selfDisplayName, selfAvatarUrl);
     else        mgr.joinRoom(SIGNALING_URL, roomId, selfDisplayName, joinPassword, selfAvatarUrl);
 
     return () => {
+      connectionManagerRef.current = null;
       mgr.dispose();
       sendRef.current          = noop;
       sendToRef.current        = noop;
@@ -444,6 +477,7 @@ export function Room({ roomId, isHost }: Props) {
     setBundleCache(cache);
     setBundleStore(store);
     assetService.setBundleStore(store);
+    assetService.setBundleCache(cache);
     let cancelled = false;
     void cache.list({ pinned: true }).then((records) => {
       if (cancelled) return;
@@ -460,10 +494,22 @@ export function Room({ roomId, isHost }: Props) {
     return () => {
       cancelled = true;
       assetService.setBundleStore(undefined);
+      assetService.setBundleCache(undefined);
       setBundleCache(null);
       setBundleStore(null);
     };
   }, []);
+
+  // Host wiring: feed the BundleStore to ConnectionManager so every
+  // peer's BundleTransport learns about authored content (initial set on
+  // channel-open, plus push/delete deltas via subscribe()).
+  useEffect(() => {
+    if (!isHost) return;
+    const mgr = connectionManagerRef.current;
+    if (!mgr || !bundleStore) return;
+    mgr.registerHostBundleStore(bundleStore);
+    return () => { mgr.registerHostBundleStore(null); };
+  }, [isHost, bundleStore]);
 
   // Manifest store — both roles. Host edits draft locally and pushes to peers
   // via the manager modal; guests receive published snapshots through

@@ -1,3 +1,6 @@
+import { BundleTransport, type BundleChannel } from '../assets/BundleTransport';
+import type { BundleStore } from '../assets/BundleStore';
+
 type Status = 'connecting' | 'connected' | 'disconnected' | 'room-full' | 'wrong-password' | 'banned';
 type Role   = 'host' | 'guest';
 
@@ -25,12 +28,47 @@ const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19
 
 const RELIABLE_LABEL   = 'game';
 const UNRELIABLE_LABEL = 'game-unreliable';
+const ASSETS_LABEL     = 'assets';
 
 interface PeerEntry {
   pc:         RTCPeerConnection;
   reliable:   RTCDataChannel | null;
   unreliable: RTCDataChannel | null;
+  assets:     RTCDataChannel | null;
+  transport:  BundleTransport | null;
   open:       boolean;  // true once the reliable channel opens
+}
+
+// Adapt a real RTCDataChannel into the BundleChannel shape the transport
+// expects. The wrapper handles the MessageEvent → `{ data }` coercion and
+// flips binaryType to 'arraybuffer' so binary chunks arrive as
+// ArrayBuffer rather than Blob (which would force an extra arrayBuffer()
+// await per chunk).
+function asBundleChannel(ch: RTCDataChannel): BundleChannel {
+  ch.binaryType = 'arraybuffer';
+  const wrapper: BundleChannel = {
+    send: (data) => ch.send(data as never),
+    bufferedAmount:             0, // overwritten via accessor below
+    bufferedAmountLowThreshold: 0,
+    onmessage:           null,
+    onbufferedamountlow: null,
+  };
+  Object.defineProperty(wrapper, 'bufferedAmount', {
+    get() { return ch.bufferedAmount; },
+  });
+  Object.defineProperty(wrapper, 'bufferedAmountLowThreshold', {
+    get() { return ch.bufferedAmountLowThreshold; },
+    set(v: number) { ch.bufferedAmountLowThreshold = v; },
+  });
+  Object.defineProperty(wrapper, 'onmessage', {
+    set(fn: ((ev: { data: string | ArrayBuffer }) => void) | null) {
+      ch.onmessage = fn ? (e) => fn({ data: e.data as string | ArrayBuffer }) : null;
+    },
+  });
+  Object.defineProperty(wrapper, 'onbufferedamountlow', {
+    set(fn: (() => void) | null) { ch.onbufferedamountlow = fn; },
+  });
+  return wrapper;
 }
 
 // Convert ws://host or wss://host into http(s)://host so we can hit /ice-config.
@@ -75,6 +113,15 @@ export class ConnectionManager {
   private displayName = '';
   private avatarUrl: string | null = null;
   private password: string | null = null;
+  // Host-only: BundleStore whose contents are served on every assets
+  // channel. The host's wire layer subscribes to puts/deletes so new
+  // uploads propagate to already-connected peers' transports.
+  private hostBundleStore:        BundleStore | null = null;
+  private bundleStoreUnsubscribe: (() => void) | null = null;
+  // Hooks the room layer wires up so it can attach BundleTransports to
+  // AssetService (guest side) or kick off pre-warm pulls.
+  private onBundleTransportOpen:  ((peerId: string, transport: BundleTransport) => void) | null = null;
+  private onBundleTransportClose: ((peerId: string) => void) | null = null;
 
   constructor(
     private readonly onMsg:             MsgHandler,
@@ -111,6 +158,42 @@ export class ConnectionManager {
       if (entry.reliable?.readyState === 'open') ids.push(id);
     }
     return ids;
+  }
+
+  // Host wiring: registers the BundleStore whose contents should be
+  // available to every connected peer. Idempotent — subsequent calls
+  // detach the old subscription and serve from the new store.
+  registerHostBundleStore(store: BundleStore | null): void {
+    this.bundleStoreUnsubscribe?.();
+    this.bundleStoreUnsubscribe = null;
+    this.hostBundleStore        = store;
+    if (!store) return;
+    // Serve everything already in the store on any currently-open peer.
+    for (const entry of this.peers.values()) {
+      if (entry.transport) this.serveStoreInto(entry.transport, store);
+    }
+    // Keep peers in sync with future puts/deletes.
+    this.bundleStoreUnsubscribe = store.subscribe((ev) => {
+      for (const entry of this.peers.values()) {
+        if (!entry.transport) continue;
+        if (ev.kind === 'put')    entry.transport.serve(ev.hash, ev.blob);
+        if (ev.kind === 'delete') entry.transport.unserve(ev.hash);
+      }
+    });
+  }
+
+  // Room layer hooks. `open` fires once per peer when the assets channel
+  // first reaches `open`; `close` fires on channel close / peer teardown.
+  setBundleTransportHandlers(opts: {
+    onOpen?:  (peerId: string, transport: BundleTransport) => void;
+    onClose?: (peerId: string) => void;
+  }): void {
+    this.onBundleTransportOpen  = opts.onOpen  ?? null;
+    this.onBundleTransportClose = opts.onClose ?? null;
+  }
+
+  private serveStoreInto(transport: BundleTransport, store: BundleStore): void {
+    for (const [hash, blob] of store.pairs()) transport.serve(hash, blob);
   }
 
   hostRoom(signalingUrl: string, roomId: string, displayName: string, avatarUrl: string | null = null) {
@@ -303,7 +386,7 @@ export class ConnectionManager {
 
   private createPeer(remoteId: string, localRole: Role): PeerEntry {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    const entry: PeerEntry = { pc, reliable: null, unreliable: null, open: false };
+    const entry: PeerEntry = { pc, reliable: null, unreliable: null, assets: null, transport: null, open: false };
     this.peers.set(remoteId, entry);
 
     pc.onicecandidate = (e) => {
@@ -319,14 +402,18 @@ export class ConnectionManager {
     if (localRole === 'host') {
       const reliable   = pc.createDataChannel(RELIABLE_LABEL,   { ordered: true });
       const unreliable = pc.createDataChannel(UNRELIABLE_LABEL, { ordered: false, maxRetransmits: 0 });
+      const assets     = pc.createDataChannel(ASSETS_LABEL,     { ordered: true });
       entry.reliable   = reliable;
       entry.unreliable = unreliable;
+      entry.assets     = assets;
       this.wireChannel(remoteId, reliable);
       this.wireChannel(remoteId, unreliable);
+      this.wireChannel(remoteId, assets);
     } else {
       pc.ondatachannel = (e) => {
-        if (e.channel.label === UNRELIABLE_LABEL) entry.unreliable = e.channel;
-        else                                      entry.reliable   = e.channel;
+        if      (e.channel.label === UNRELIABLE_LABEL) entry.unreliable = e.channel;
+        else if (e.channel.label === ASSETS_LABEL)     entry.assets     = e.channel;
+        else                                           entry.reliable   = e.channel;
         this.wireChannel(remoteId, e.channel);
       };
     }
@@ -335,6 +422,28 @@ export class ConnectionManager {
   }
 
   private wireChannel(remoteId: string, ch: RTCDataChannel) {
+    if (ch.label === ASSETS_LABEL) {
+      ch.onopen = () => {
+        const entry = this.peers.get(remoteId);
+        if (!entry) return;
+        const transport = new BundleTransport(asBundleChannel(ch));
+        entry.transport = transport;
+        // Host side: serve everything currently in the BundleStore.
+        if (this.hostBundleStore) this.serveStoreInto(transport, this.hostBundleStore);
+        // Notify the room layer so it can attach this transport to
+        // AssetService (guest) or kick off pre-warms.
+        this.onBundleTransportOpen?.(remoteId, transport);
+      };
+      ch.onclose = () => {
+        const entry = this.peers.get(remoteId);
+        if (!entry) return;
+        entry.transport?.close('assets channel closed');
+        entry.transport = null;
+        this.onBundleTransportClose?.(remoteId);
+      };
+      // BundleTransport sets its own onmessage; do not parse JSON here.
+      return;
+    }
     ch.onopen = () => {
       const entry = this.peers.get(remoteId);
       if (!entry) return;
@@ -360,6 +469,11 @@ export class ConnectionManager {
   private tearDownPeer(remoteId: string) {
     const entry = this.peers.get(remoteId);
     if (!entry) return;
+    if (entry.transport) {
+      entry.transport.close('peer torn down');
+      entry.transport = null;
+      this.onBundleTransportClose?.(remoteId);
+    }
     entry.pc.close();
     this.peers.delete(remoteId);
     this.peerNames.delete(remoteId);

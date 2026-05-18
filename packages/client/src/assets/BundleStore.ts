@@ -10,10 +10,16 @@ export interface BundleStoreOptions {
   onDelete?: (hash: string) => void;
 }
 
+export type BundleStoreListener = (event:
+  | { kind: 'put';    hash: string; blob: Blob }
+  | { kind: 'delete'; hash: string }
+) => void;
+
 export class BundleStore {
   private readonly entries = new Map<string, Blob>();
   private readonly onPut?:    (hash: string, blob: Blob) => void;
   private readonly onDelete?: (hash: string) => void;
+  private readonly listeners = new Set<BundleStoreListener>();
 
   constructor(opts: BundleStoreOptions = {}) {
     this.onPut    = opts.onPut;
@@ -32,11 +38,15 @@ export class BundleStore {
     if (this.entries.has(hash)) return;
     this.entries.set(hash, blob);
     this.onPut?.(hash, blob);
+    for (const l of this.listeners) l({ kind: 'put', hash, blob });
   }
 
   delete(hash: string): boolean {
     const had = this.entries.delete(hash);
-    if (had) this.onDelete?.(hash);
+    if (had) {
+      this.onDelete?.(hash);
+      for (const l of this.listeners) l({ kind: 'delete', hash });
+    }
     return had;
   }
 
@@ -49,5 +59,19 @@ export class BundleStore {
 
   list(): string[] {
     return [...this.entries.keys()];
+  }
+
+  // Iterate over `[hash, blob]` pairs. Used by ConnectionManager to wire
+  // the host's current content into a freshly-opened BundleTransport.
+  pairs(): IterableIterator<[string, Blob]> {
+    return this.entries.entries();
+  }
+
+  // Observe puts / deletes. The host's wire layer uses this to push new
+  // uploads onto every connected peer's BundleTransport without having to
+  // poll the store.
+  subscribe(listener: BundleStoreListener): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
   }
 }

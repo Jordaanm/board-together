@@ -826,3 +826,170 @@ describe('AssetService — bundled entries via BundleStore', () => {
     expect(urlStub.revokeMock).not.toHaveBeenCalled();
   });
 });
+
+// Minimal fake BundleTransport for the wire-fallback tests. Resolves
+// `request(hash)` against an in-memory `served` map; supports cancel and
+// a "drop" mode that returns a rejection to simulate host disconnect.
+function makeFakeTransport(): {
+  serve: (hash: string, blob: Blob) => void;
+  setMode: (mode: 'normal' | 'unknown' | 'drop' | 'hang') => void;
+  requestCount: () => number;
+  asTransport: () => { request: (hash: string) => { promise: Promise<Blob>; cancel: () => void } };
+  flushHangs: () => void;
+} {
+  const served = new Map<string, Blob>();
+  let mode: 'normal' | 'unknown' | 'drop' | 'hang' = 'normal';
+  let count = 0;
+  const hangResolvers: Array<{ resolve: (blob: Blob) => void; reject: (err: Error) => void; hash: string }> = [];
+  return {
+    serve: (hash, blob) => { served.set(hash, blob); },
+    setMode: (m) => { mode = m; },
+    requestCount: () => count,
+    flushHangs: () => {
+      const queued = hangResolvers.splice(0);
+      for (const r of queued) {
+        const b = served.get(r.hash);
+        if (b) r.resolve(b);
+        else r.reject(new Error('unknown-hash'));
+      }
+    },
+    asTransport: () => ({
+      request: (hash) => {
+        count++;
+        if (mode === 'unknown') {
+          return { promise: Promise.reject(new Error('unknown-hash')), cancel: () => {} };
+        }
+        if (mode === 'drop') {
+          return { promise: Promise.reject(new Error('channel-closed')), cancel: () => {} };
+        }
+        if (mode === 'hang') {
+          let resolveFn!: (blob: Blob) => void;
+          let rejectFn!:  (err: Error) => void;
+          const promise = new Promise<Blob>((res, rej) => { resolveFn = res; rejectFn = rej; });
+          const entry = { resolve: resolveFn, reject: rejectFn, hash };
+          hangResolvers.push(entry);
+          const cancel = () => {
+            const i = hangResolvers.indexOf(entry);
+            if (i >= 0) hangResolvers.splice(i, 1);
+            rejectFn(new Error('cancelled'));
+          };
+          return { promise, cancel };
+        }
+        const blob = served.get(hash);
+        if (!blob) return { promise: Promise.reject(new Error('unknown-hash')), cancel: () => {} };
+        return { promise: Promise.resolve(blob), cancel: () => {} };
+      },
+    }),
+  };
+}
+
+describe('AssetService — bundled wire fallback', () => {
+  let urlStub: ReturnType<typeof stubObjectUrl>;
+
+  beforeEach(() => { urlStub = stubObjectUrl(); });
+  afterEach(()  => { urlStub.restore(); });
+
+  test('store miss → transport hit populates store and resolves loaded', async () => {
+    const tex = new THREE.Texture();
+    const blob = new Blob([new Uint8Array([5, 5, 5])]);
+    const fake = makeFakeTransport();
+    fake.serve(HASH, blob);
+    const store = new BundleStore();
+    const svc = new AssetService({
+      manifests:       [Manifest.from([bundledImageEntry])],
+      imageLoader:     () => Promise.resolve(tex),
+      bundleStore:     store,
+      bundleTransport: fake.asTransport() as never,
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen).toEqual(['pending', 'loaded']);
+    expect(store.has(HASH)).toBe(true);
+    expect(fake.requestCount()).toBe(1);
+  });
+
+  test('cache hit short-circuits the transport — no wire request made', async () => {
+    const { BundleCache } = await import('./BundleCache');
+    const fake  = makeFakeTransport();
+    const blob  = new Blob([new Uint8Array([7])]);
+    const driver: import('./BundleCache').BundleCacheDriver = {
+      async get(h)  { return h === HASH ? { hash: HASH, blob, size: 1, lastAccessed: 1, pinned: false } : undefined; },
+      async put()   {},
+      async delete(){},
+      async list()  { return []; },
+    };
+    const cache = new BundleCache({ driver });
+    const store = new BundleStore();
+    const svc = new AssetService({
+      manifests:       [Manifest.from([bundledImageEntry])],
+      imageLoader:     () => Promise.resolve(new THREE.Texture()),
+      bundleStore:     store,
+      bundleCache:     cache,
+      bundleTransport: fake.asTransport() as never,
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen[seen.length - 1]).toBe('loaded');
+    expect(fake.requestCount()).toBe(0);
+    // Cache hit should populate the in-memory store too.
+    expect(store.has(HASH)).toBe(true);
+  });
+
+  test('unsubscribe with zero listeners cancels in-flight wire pull', async () => {
+    const fake = makeFakeTransport();
+    fake.setMode('hang');
+    const svc = new AssetService({
+      manifests:       [Manifest.from([bundledImageEntry])],
+      imageLoader:     () => Promise.resolve(new THREE.Texture()),
+      bundleStore:     new BundleStore(),
+      bundleTransport: fake.asTransport() as never,
+    });
+    const unsubscribe = svc.subscribe('custom:bundled-img', 'image', () => {});
+    await flushMicrotasks();
+    expect(fake.requestCount()).toBe(1);
+    unsubscribe();
+    // Re-subscribing should fire a fresh request (entry was dropped).
+    svc.subscribe('custom:bundled-img', 'image', () => {});
+    await flushMicrotasks();
+    expect(fake.requestCount()).toBe(2);
+  });
+
+  test('transport rejection → broken status (e.g. host disconnect mid-pull)', async () => {
+    const fake = makeFakeTransport();
+    fake.setMode('drop');
+    const svc = new AssetService({
+      manifests:       [Manifest.from([bundledImageEntry])],
+      imageLoader:     () => Promise.resolve(new THREE.Texture()),
+      bundleStore:     new BundleStore(),
+      bundleTransport: fake.asTransport() as never,
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen).toEqual(['pending', 'broken']);
+  });
+
+  test('concurrent subscribes to two bundled entries fire two parallel requests', async () => {
+    const fake = makeFakeTransport();
+    const HASH2 = 'b'.repeat(64);
+    const blob1 = new Blob([new Uint8Array([1])]);
+    const blob2 = new Blob([new Uint8Array([2])]);
+    fake.serve(HASH,  blob1);
+    fake.serve(HASH2, blob2);
+    const svc = new AssetService({
+      manifests:       [Manifest.from([
+        bundledImageEntry,
+        { ...bundledImageEntry, slug: 'custom:bundled-img-2', hash: HASH2 },
+      ])],
+      imageLoader:     () => Promise.resolve(new THREE.Texture()),
+      bundleStore:     new BundleStore(),
+      bundleTransport: fake.asTransport() as never,
+    });
+    svc.subscribe('custom:bundled-img',   'image', () => {});
+    svc.subscribe('custom:bundled-img-2', 'image', () => {});
+    await flushMicrotasks();
+    expect(fake.requestCount()).toBe(2);
+  });
+});
