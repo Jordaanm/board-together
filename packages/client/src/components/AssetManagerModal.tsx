@@ -37,6 +37,7 @@ import {
   SINGLE_ASSET_WARN_BYTES,
   TOTAL_WARN_BYTES,
 } from '../assets/bundleSize';
+import { useEntryImageSrc } from '../assets/useEntryImageSrc';
 
 interface Props {
   store:         ManifestStore | null;
@@ -391,16 +392,17 @@ function typeLabel(t: AssetType): string {
   return t === 'spritesheet' ? 'sprite' : t;
 }
 
-function RowPreview({ entry }: { entry: AssetEntry }) {
-  if ((entry.type === 'image' || entry.type === 'spritesheet') && !isSyntheticUrl(entry.url)) {
+function RowPreview({ entry, bundleStore }: { entry: AssetEntry; bundleStore?: BundleStore }) {
+  const src = useEntryImageSrc(entry, bundleStore);
+  if ((entry.type === 'image' || entry.type === 'spritesheet') && !isSyntheticUrl(entry.url) && src) {
     return (
       <div style={PREVIEW_BOX}>
-        <img src={entry.url} alt={entry.name} style={PREVIEW_IMG} loading="lazy" />
+        <img src={src} alt={entry.name} style={PREVIEW_IMG} loading="lazy" />
       </div>
     );
   }
-  if (entry.type === 'sound' && !isSyntheticUrl(entry.url)) {
-    return <div style={PREVIEW_BOX}><SoundPreview url={entry.url} /></div>;
+  if (entry.type === 'sound' && !isSyntheticUrl(entry.url) && src) {
+    return <div style={PREVIEW_BOX}><SoundPreview url={src} /></div>;
   }
   return <div style={PREVIEW_BOX} />;
 }
@@ -533,7 +535,7 @@ function CustomRow({
 
   return (
     <div style={ROW}>
-      <RowPreview entry={entry} />
+      <RowPreview entry={entry} bundleStore={bundleStore} />
       <div style={ROW_LABEL}>
         <div style={ROW_NAME}>
           {entry.name}

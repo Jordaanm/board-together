@@ -241,6 +241,7 @@ export function HostActionBar({
       />
       <GenerateDeckModal
         store={manifestStore}
+        bundleStore={bundleStore}
         onGenerate={handleGenerateDeck}
         open={deckOpen}
         onOpenChange={setDeckOpen}

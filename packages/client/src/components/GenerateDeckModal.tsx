@@ -8,7 +8,9 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useAnchorTarget } from './AnchorLayout';
 import { type ManifestStore } from '../assets/ManifestStore';
 import { type AssetEntry } from '../assets/Manifest';
+import { type BundleStore } from '../assets/BundleStore';
 import { serializeSpriteRef } from '../assets/spriteRef';
+import { useEntryImageSrc } from '../assets/useEntryImageSrc';
 
 export interface GenerateDeckRequest {
   faceRefs: string[];
@@ -22,6 +24,10 @@ interface Props {
   open?:         boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?:  boolean;
+  // When the selected spritesheet is `bundled: true`, the grid cells need
+  // a BundleStore lookup to mint an Object URL — `sheet.url` is the empty
+  // breadcrumb at that point.
+  bundleStore?:  BundleStore;
 }
 
 const TRIGGER_BTN: React.CSSProperties = {
@@ -157,7 +163,7 @@ const COUNT: React.CSSProperties = {
 };
 
 export function GenerateDeckModal({
-  store, onGenerate, open: controlledOpen, onOpenChange, hideTrigger,
+  store, onGenerate, open: controlledOpen, onOpenChange, hideTrigger, bundleStore,
 }: Props) {
   const centerAnchor = useAnchorTarget('center');
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -187,6 +193,7 @@ export function GenerateDeckModal({
             {open && (
               <Body
                 store={store}
+                bundleStore={bundleStore}
                 onGenerate={(req) => { onGenerate(req); setOpen(false); }}
                 onCancel={() => setOpen(false)}
               />
@@ -199,8 +206,13 @@ export function GenerateDeckModal({
 }
 
 function Body({
-  store, onGenerate, onCancel,
-}: { store: ManifestStore | null; onGenerate: (req: GenerateDeckRequest) => void; onCancel: () => void }) {
+  store, bundleStore, onGenerate, onCancel,
+}: {
+  store:        ManifestStore | null;
+  bundleStore?: BundleStore;
+  onGenerate:   (req: GenerateDeckRequest) => void;
+  onCancel:     () => void;
+}) {
   const draft = useSyncExternalStore(
     (cb) => store?.subscribe(cb) ?? (() => {}),
     () => store?.getDraft() ?? null,
@@ -275,7 +287,7 @@ function Body({
                 Click a cell to mark it as the card back. Every other cell becomes a face.
               </span>
               {sheet && (
-                <SheetGrid sheet={sheet} selectedIndex={backIndex} onPick={setBackIndex} />
+                <SheetGrid sheet={sheet} bundleStore={bundleStore} selectedIndex={backIndex} onPick={setBackIndex} />
               )}
             </div>
 
@@ -322,13 +334,19 @@ const SELECTED_BORDER = '2px solid var(--accent)';
 const CELL_BORDER     = '1px solid var(--line)';
 
 function SheetGrid({
-  sheet, selectedIndex, onPick,
-}: { sheet: AssetEntry; selectedIndex: number | null; onPick: (i: number) => void }) {
+  sheet, bundleStore, selectedIndex, onPick,
+}: {
+  sheet:         AssetEntry;
+  bundleStore?:  BundleStore;
+  selectedIndex: number | null;
+  onPick:        (i: number) => void;
+}) {
   const cols = sheet.cols ?? 1;
   const rows = sheet.rows ?? 1;
   const total = cols * rows;
   const cells: number[] = [];
   for (let i = 0; i < total; i++) cells.push(i);
+  const sheetSrc = useEntryImageSrc(sheet, bundleStore);
 
   return (
     <div style={{
@@ -350,7 +368,8 @@ function SheetGrid({
             title={`${sheet.slug}:${i}`}
             style={{
               aspectRatio:        '1 / 1',
-              backgroundImage:    `url("${sheet.url}")`,
+              backgroundImage:    sheetSrc ? `url("${sheetSrc}")` : undefined,
+              backgroundColor:    sheetSrc ? undefined : 'var(--bg)',
               backgroundSize:     `${cols * 100}% ${rows * 100}%`,
               backgroundPosition: `${bgPosX} ${bgPosY}`,
               backgroundRepeat:   'no-repeat',
