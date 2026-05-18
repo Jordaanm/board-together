@@ -674,29 +674,41 @@ export class AssetService {
     }
     entry.status = 'pending';
     notifySheet('pending');
-    entry.loadPromise = this.imageLoader(found.url).then(
-      (tex) => {
-        // Filters must be set BEFORE the texture is uploaded to the GPU.
-        // The first upload happens when the clone is first rendered in a
-        // material — by that point this Promise has resolved, the clone
-        // has been created (inheriting `generateMipmaps`/`minFilter`),
-        // and the source has its filter state locked in. See
-        // planning/prd--sprite-sheet.md "Further Notes".
-        tex.generateMipmaps = false;
-        tex.minFilter       = THREE.LinearFilter;
-        tex.magFilter       = THREE.LinearFilter;
-        entry.status  = 'loaded';
-        entry.texture = tex;
-        notifySheet('loaded');
-        return tex;
-      },
-      () => {
-        entry.status  = 'broken';
-        entry.texture = null;
-        notifySheet('broken');
-        return null;
-      },
-    );
+
+    // Filters must be set BEFORE the texture is uploaded to the GPU.
+    // The first upload happens when the clone is first rendered in a
+    // material — by that point this Promise has resolved, the clone has
+    // been created (inheriting `generateMipmaps`/`minFilter`), and the
+    // source has its filter state locked in. See
+    // planning/prd--sprite-sheet.md "Further Notes".
+    const onLoaded = (tex: THREE.Texture): THREE.Texture => {
+      tex.generateMipmaps = false;
+      tex.minFilter       = THREE.LinearFilter;
+      tex.magFilter       = THREE.LinearFilter;
+      entry.status  = 'loaded';
+      entry.texture = tex;
+      notifySheet('loaded');
+      return tex;
+    };
+    const onBroken = (): null => {
+      entry.status  = 'broken';
+      entry.texture = null;
+      notifySheet('broken');
+      return null;
+    };
+
+    if (found.bundled === true) {
+      entry.loadPromise = this.resolveBundleBlob(found.hash!).promise.then((blob) => {
+        if (!blob) return onBroken();
+        const objectUrl = URL.createObjectURL(blob);
+        return this.imageLoader(objectUrl)
+          .then(onLoaded, onBroken)
+          .finally(() => { URL.revokeObjectURL(objectUrl); });
+      });
+      return;
+    }
+
+    entry.loadPromise = this.imageLoader(found.url).then(onLoaded, onBroken);
   }
 
   // Drop the cached sheet texture and re-fetch through `startSheetLoad`.

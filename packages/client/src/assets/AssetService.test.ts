@@ -815,6 +815,52 @@ describe('AssetService — bundled entries via BundleStore', () => {
     expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
   });
 
+  test('bundled spritesheet — sprite refs resolve via the BundleStore', async () => {
+    // Regression: startSheetLoad used to call imageLoader(found.url) which
+    // is the empty string for bundled sheets, so sprite refs never rendered.
+    const parent = new THREE.Texture();
+    const SHEET_HASH = 'a'.repeat(64);
+    const store = new BundleStore();
+    store.put(SHEET_HASH, new Blob([new Uint8Array([1, 2, 3])]));
+    const sheet: AssetEntry = {
+      slug: 'custom:bundled-sheet', name: 'BSheet', type: 'spritesheet',
+      url:  '', preload: false, bundled: true, hash: SHEET_HASH, size: 3,
+      cols: 4, rows: 4,
+    };
+    let imageLoaderCalls = 0;
+    const svc = new AssetService({
+      manifests:   [Manifest.from([sheet])],
+      imageLoader: () => { imageLoaderCalls++; return Promise.resolve(parent); },
+      bundleStore: store,
+    });
+    const seen: { tex: THREE.Texture; status: AssetStatus }[] = [];
+    svc.subscribe('custom:bundled-sheet:0', 'image', (t, s) => seen.push({ tex: t, status: s }));
+    await flushMicrotasks();
+    expect(seen[seen.length - 1].status).toBe('loaded');
+    expect(seen[seen.length - 1].tex).not.toBe(parent);              // cloned
+    expect(seen[seen.length - 1].tex.image).toBe(parent.image);       // shared image source
+    expect(imageLoaderCalls).toBe(1);
+    expect(urlStub.createMock).toHaveBeenCalledTimes(1);
+    expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('bundled spritesheet — BundleStore miss → broken sprite refs', async () => {
+    const sheet: AssetEntry = {
+      slug: 'custom:bundled-sheet', name: 'BSheet', type: 'spritesheet',
+      url:  '', preload: false, bundled: true, hash: HASH, size: 3,
+      cols: 2, rows: 2,
+    };
+    const svc = new AssetService({
+      manifests:   [Manifest.from([sheet])],
+      imageLoader: () => Promise.resolve(new THREE.Texture()),
+      bundleStore: new BundleStore(),  // empty — miss
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-sheet:1', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen[seen.length - 1]).toBe('broken');
+  });
+
   test('non-bundled URL entries do NOT touch URL.createObjectURL', async () => {
     const svc = new AssetService({
       imageLoader: () => Promise.resolve(new THREE.Texture()),
