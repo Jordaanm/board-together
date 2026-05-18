@@ -790,28 +790,35 @@ function AddRow({
   const [staging, setStaging] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Set when the user picked / dropped a file but hasn't committed yet.
+  // Hashing + bundle writes are deferred to commit so the user can choose
+  // image vs spritesheet (and supply cols / rows) without paying the
+  // hash cost first.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preflight = useUrlPreflight(url, '');
   const isSheet   = type === 'spritesheet';
+  const isUpload  = pendingFile !== null;
   const canUpload = bundleStore !== undefined && bundleCache !== undefined;
 
   // Auto-suggest slug from URL filename when the user hasn't manually typed
   // one. Once the user edits the slug field, stop syncing.
   const [slugTouched, setSlugTouched] = useState(false);
   useEffect(() => {
-    if (slugTouched) return;
+    if (slugTouched || isUpload) return;
     const suggested = suggestSlugFromUrl(url);
     setSlug(suggested);
     if (!name && url) setName(suggested.replace(/^custom:/, '').replace(/[-_]/g, ' '));
-  }, [url, slugTouched]);
+  }, [url, slugTouched, isUpload]);
 
   const reset = () => {
     setUrl(''); setSlug(''); setName(''); setType('image');
     setPreload(true); setCols(''); setRows('');
     setError(null); setSlugTouched(false); setStaging(false);
+    setPendingFile(null);
   };
 
-  const commit = () => {
+  const commitUrl = () => {
     setError(null);
     if (!url.trim())      return setError('URL is required.');
     if (!name.trim())     return setError('Name is required.');
@@ -836,24 +843,35 @@ function AddRow({
     }
   };
 
-  const [pendingLargeFile, setPendingLargeFile] = useState<File | null>(null);
-
-  const handleUploadFile = async (file: File) => {
-    if (!bundleStore || !bundleCache) return;
+  const commitUpload = async () => {
+    if (!pendingFile || !bundleStore || !bundleCache) return;
     setError(null);
-    const type = inferAssetTypeFromFile(file);
-    if (!type) {
-      setError(`Unsupported file type for "${file.name}". Use image / sound / model.`);
-      return;
+    if (!name.trim()) return setError('Name is required.');
+    const check = validateSlug(slug, 'custom');
+    if (!check.ok)    return setError(check.error);
+    let colsNum: number | undefined;
+    let rowsNum: number | undefined;
+    if (isSheet) {
+      colsNum = Number(cols);
+      rowsNum = Number(rows);
+      if (!Number.isInteger(colsNum) || colsNum < 1) return setError('Cols must be a positive integer.');
+      if (!Number.isInteger(rowsNum) || rowsNum < 1) return setError('Rows must be a positive integer.');
     }
-    setUploadStatus(`Hashing ${file.name}…`);
+    setUploadStatus(`Hashing ${pendingFile.name}…`);
     try {
-      const hash       = await bundleBlob(file, bundleStore, bundleCache);
-      const slug       = uniqueCustomSlug(fileStemForSlug(file.name), store.getDraft());
-      const entryName  = fileStemForName(file.name) || file.name;
-      store.editDraft((d) => d.add(entryFromUpload({
-        slug, name: entryName, type, hash, size: file.size, preload: true,
-      })));
+      const hash = await bundleBlob(pendingFile, bundleStore, bundleCache);
+      store.editDraft((d) => d.add({
+        slug,
+        name:    name.trim(),
+        type,
+        url:     '',
+        preload,
+        bundled: true,
+        hash,
+        size:    pendingFile.size,
+        ...(isSheet ? { cols: colsNum, rows: rowsNum } : {}),
+      }));
+      reset();
     } catch (e) {
       setError(`Upload failed: ${(e as Error).message}`);
     } finally {
@@ -861,15 +879,43 @@ function AddRow({
     }
   };
 
+  const commit = () => { if (isUpload) void commitUpload(); else commitUrl(); };
+
+  const [pendingLargeFile, setPendingLargeFile] = useState<File | null>(null);
+
+  // Open the full staging form pre-filled with the file's metadata. The
+  // type defaults to the file's inferred type (image / sound / model)
+  // but the user can flip image → spritesheet from the select, supplying
+  // cols / rows as needed.
+  const enterFileStaging = (file: File) => {
+    const inferred = inferAssetTypeFromFile(file);
+    if (!inferred) {
+      setError(`Unsupported file type for "${file.name}". Use image / sound / model.`);
+      return;
+    }
+    setError(null);
+    setPendingFile(file);
+    setUrl('');
+    setSlug(uniqueCustomSlug(fileStemForSlug(file.name), store.getDraft()));
+    setName(fileStemForName(file.name) || file.name);
+    setType(inferred);
+    setPreload(true);
+    setCols('');
+    setRows('');
+    setSlugTouched(false);
+    setStaging(true);
+  };
+
   // Front door for any file the user picked / dropped. Files over the
   // single-asset threshold defer through a confirm modal; everything else
-  // streams straight through handleUploadFile.
+  // jumps straight into the staging form.
   const acceptFile = (file: File) => {
+    if (!bundleStore || !bundleCache) return;
     if (file.size > SINGLE_ASSET_WARN_BYTES) {
       setPendingLargeFile(file);
       return;
     }
-    void handleUploadFile(file);
+    enterFileStaging(file);
   };
 
   const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -900,7 +946,7 @@ function AddRow({
       onConfirm={() => {
         const f = pendingLargeFile;
         setPendingLargeFile(null);
-        void handleUploadFile(f);
+        enterFileStaging(f);
       }}
     />
   );
@@ -953,59 +999,90 @@ function AddRow({
     );
   }
 
+  // Image uploads also support being interpreted as a spritesheet; other
+  // types stay locked since e.g. a .mp3 can't become a model.
+  const typeOptions: AssetType[] = isUpload
+    ? (pendingFile && inferAssetTypeFromFile(pendingFile) === 'image'
+        ? ['image', 'spritesheet']
+        : pendingFile && inferAssetTypeFromFile(pendingFile) === 'sound'
+          ? ['sound']
+          : pendingFile && inferAssetTypeFromFile(pendingFile) === 'model'
+            ? ['model']
+            : ['image'])
+    : ['image', 'model', 'sound', 'spritesheet'];
+
   return (
-    <div style={ADD_BAR}>
-      <div style={{ flex: 1 }}>
-        <div style={FIELD_GRID}>
-          <div style={FIELD_LABEL}>URL</div>
-          <input style={INPUT} value={url} onChange={(e) => setUrl(e.target.value)} />
-          <div style={FIELD_LABEL}>Slug</div>
-          <input
-            style={INPUT}
-            value={slug}
-            onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
-            placeholder="custom:my-asset"
-          />
-          <div style={FIELD_LABEL}>Name</div>
-          <input style={INPUT} value={name} onChange={(e) => setName(e.target.value)} />
-          <div style={FIELD_LABEL}>Type</div>
-          <select
-            style={{ ...INPUT, padding: '3px 6px' }}
-            value={type}
-            onChange={(e) => setType(e.target.value as AssetType)}
-          >
-            <option value="image">image</option>
-            <option value="model">model</option>
-            <option value="sound">sound</option>
-            <option value="spritesheet">sprite</option>
-          </select>
-          <div style={FIELD_LABEL}>Preload</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={preload} onChange={(e) => setPreload(e.target.checked)} />
-            <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>Fetch at session start</span>
-          </label>
-          {isSheet && <>
-            <div style={FIELD_LABEL}>Cols</div>
-            <input style={INPUT} type="number" min={1} step={1} value={cols} onChange={(e) => setCols(e.target.value)} />
-            <div style={FIELD_LABEL}>Rows</div>
-            <input style={INPUT} type="number" min={1} step={1} value={rows} onChange={(e) => setRows(e.target.value)} />
-          </>}
-        </div>
-        <PreflightLine state={preflight} />
-        {error && <div style={ERROR_LINE}>{error}</div>}
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          <button type="button" style={SMALL_BTN} onClick={reset}>Cancel</button>
-          <button
-            type="button"
-            style={SMALL_BTN}
-            onClick={commit}
-            title={preflight.kind === 'fail' ? 'Preflight failed — committing anyway. The asset may not load.' : ''}
-          >
-            {preflight.kind === 'fail' ? 'Add anyway' : 'Add'}
-          </button>
+    <>
+      <div style={ADD_BAR}>
+        <div style={{ flex: 1 }}>
+          <div style={FIELD_GRID}>
+            {isUpload ? (
+              <>
+                <div style={FIELD_LABEL}>File</div>
+                <div style={{ ...ROW_SLUG, fontSize: 12, color: 'var(--ink)' }}>
+                  {pendingFile!.name}
+                  <span style={{ marginLeft: 8, color: 'var(--ink-mute)' }}>
+                    ({formatBytes(pendingFile!.size)})
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={FIELD_LABEL}>URL</div>
+                <input style={INPUT} value={url} onChange={(e) => setUrl(e.target.value)} />
+              </>
+            )}
+            <div style={FIELD_LABEL}>Slug</div>
+            <input
+              style={INPUT}
+              value={slug}
+              onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+              placeholder="custom:my-asset"
+            />
+            <div style={FIELD_LABEL}>Name</div>
+            <input style={INPUT} value={name} onChange={(e) => setName(e.target.value)} />
+            <div style={FIELD_LABEL}>Type</div>
+            <select
+              style={{ ...INPUT, padding: '3px 6px' }}
+              value={type}
+              onChange={(e) => setType(e.target.value as AssetType)}
+              disabled={typeOptions.length === 1}
+            >
+              {typeOptions.map((t) => (
+                <option key={t} value={t}>{t === 'spritesheet' ? 'sprite' : t}</option>
+              ))}
+            </select>
+            <div style={FIELD_LABEL}>Preload</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={preload} onChange={(e) => setPreload(e.target.checked)} />
+              <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>Fetch at session start</span>
+            </label>
+            {isSheet && <>
+              <div style={FIELD_LABEL}>Cols</div>
+              <input style={INPUT} type="number" min={1} step={1} value={cols} onChange={(e) => setCols(e.target.value)} />
+              <div style={FIELD_LABEL}>Rows</div>
+              <input style={INPUT} type="number" min={1} step={1} value={rows} onChange={(e) => setRows(e.target.value)} />
+            </>}
+          </div>
+          {!isUpload && <PreflightLine state={preflight} />}
+          {uploadStatus && <div style={{ fontSize: 11, color: 'var(--ink-2)' }}>{uploadStatus}</div>}
+          {error && <div style={ERROR_LINE}>{error}</div>}
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button type="button" style={SMALL_BTN} onClick={reset} disabled={uploadStatus !== null}>Cancel</button>
+            <button
+              type="button"
+              style={SMALL_BTN}
+              onClick={commit}
+              disabled={uploadStatus !== null}
+              title={!isUpload && preflight.kind === 'fail' ? 'Preflight failed — committing anyway. The asset may not load.' : ''}
+            >
+              {isUpload ? 'Add' : (preflight.kind === 'fail' ? 'Add anyway' : 'Add')}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      {largeFileModal}
+    </>
   );
 }
 
