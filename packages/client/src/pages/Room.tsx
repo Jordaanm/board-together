@@ -626,7 +626,7 @@ export function Room({ roomId, isHost }: Props) {
               onToggleShowAllZones={handleToggleShowAllZones}
               showSnapPoints={showSnapPoints}
               onToggleShowSnapPoints={handleToggleShowSnapPoints}
-              onLoad={(envelope, filename) => {
+              onLoad={(envelope, filename, bundles) => {
                 handle.controller.history?.setLastLoaded({
                   snapshot: envelope.scene,
                   filename,
@@ -637,6 +637,24 @@ export function Room({ roomId, isHost }: Props) {
                 setScriptSource(envelope.script.source);
                 manifestStoreRef.current?.loadFromSave(envelope.manifest);
                 managerRef.current?.hydrateTurns(envelope.turns);
+                // Pump verified bundle blobs into the in-memory store +
+                // pinned cache so AssetService's bundled branch resolves
+                // them this session, and the next session rehydrates from
+                // IDB. Hash verification + orphan filtering already
+                // happened inside decodeSaveZip. loadFromSave above fired
+                // a manifest refresh that invalidated each slug before the
+                // blobs landed (so they went broken on miss); re-invalidate
+                // every bundled slug so the resolution path takes another
+                // pass with the now-populated store.
+                if (bundleStore && bundleCache && bundles.length > 0) {
+                  for (const b of bundles) {
+                    bundleStore.put(b.hash, b.blob);
+                    void bundleCache.put(b.hash, b.blob, { pinned: true });
+                  }
+                  for (const e of envelope.manifest) {
+                    if (e.bundled === true) assetService.invalidate(e.slug);
+                  }
+                }
               }}
               onRevert={() => handle.controller.history?.revert()}
               lastLoaded={lastLoaded}

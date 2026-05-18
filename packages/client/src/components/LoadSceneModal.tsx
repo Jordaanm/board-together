@@ -14,6 +14,7 @@ import {
   looksLikeSaveZip,
   SaveFileError,
   type SaveEnvelope,
+  type SaveZipBundle,
 } from '../entity/SaveFile';
 import { useAnchorTarget } from './AnchorLayout';
 
@@ -21,7 +22,7 @@ interface Props {
   // Number of entities currently in the scene. Used to compose the
   // replace-warning copy in the preview modal.
   currentEntityCount: number;
-  onConfirmLoad:     (envelope: SaveEnvelope, filename: string) => void;
+  onConfirmLoad:     (envelope: SaveEnvelope, filename: string, bundles: SaveZipBundle[]) => void;
   // When provided, the modal populates this ref with an `open()` function
   // that fires the file picker. The host action menu calls it to drive the
   // flow without rendering the built-in trigger button.
@@ -32,6 +33,7 @@ interface Props {
 interface PendingPreview {
   envelope: SaveEnvelope;
   filename: string;
+  bundles:  SaveZipBundle[];
 }
 
 const BUTTON: React.CSSProperties = {
@@ -168,14 +170,16 @@ export function LoadSceneModal({ currentEntityCount, onConfirmLoad, triggerRef, 
       return;
     }
     try {
-      // Magic-byte sniff: zip → v2, JSON → v1 path.
-      // Bundle blobs from the zip are decoded here but #8 wires them into
-      // BundleStore / BundleCache; for now they're discarded so the scene
-      // loads at parity with the JSON path.
-      const envelope = looksLikeSaveZip(bytes)
-        ? (await decodeSaveZip(bytes)).envelope
-        : decodeSaveFile(new TextDecoder().decode(bytes));
-      setPreview({ envelope, filename: file.name });
+      // Magic-byte sniff: zip → v2, JSON → v1 path. Zip path returns
+      // hash-verified bundle blobs that the consumer pumps into
+      // BundleStore + BundleCache once the user confirms the load.
+      if (looksLikeSaveZip(bytes)) {
+        const { envelope, blobs } = await decodeSaveZip(bytes);
+        setPreview({ envelope, filename: file.name, bundles: blobs });
+      } else {
+        const envelope = decodeSaveFile(new TextDecoder().decode(bytes));
+        setPreview({ envelope, filename: file.name, bundles: [] });
+      }
     } catch (err) {
       setError(err instanceof SaveFileError ? err.message : 'Failed to parse save file.');
     }
@@ -188,7 +192,7 @@ export function LoadSceneModal({ currentEntityCount, onConfirmLoad, triggerRef, 
 
   const confirm = () => {
     if (!preview) return;
-    onConfirmLoad(preview.envelope, preview.filename);
+    onConfirmLoad(preview.envelope, preview.filename, preview.bundles);
     closeAll();
   };
 

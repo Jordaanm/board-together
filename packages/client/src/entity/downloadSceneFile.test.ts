@@ -89,4 +89,37 @@ describe('downloadSceneFile', () => {
     // sanity: empty scene zip should fit well under 1KB.
     expect(blob.size).toBeLessThan(1024);
   });
+
+  test('pulls bytes from BundleStore by hash; dedupes when two entries share a hash', async () => {
+    const { BundleStore } = await import('../assets/BundleStore');
+    const { hashBlob }    = await import('../assets/BundleHasher');
+    const { decodeSaveZip } = await import('./SaveFile');
+    const blob = new Blob([new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF])]);
+    const hash = await hashBlob(blob);
+    const store = new BundleStore();
+    store.put(hash, blob);
+    const manifest: AssetEntry[] = [
+      { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash },
+      { slug: 'custom:b', name: 'B', type: 'image', url: '', preload: false, bundled: true, hash },
+    ];
+    await downloadSceneFile([], null, manifest, undefined, undefined, store);
+    const [zipBlob] = downloadMock.mock.calls[0] as [Blob, string];
+    const bytes     = new Uint8Array(await zipBlob.arrayBuffer());
+    const decoded   = await decodeSaveZip(bytes);
+    expect(decoded.blobs.length).toBe(1);
+    expect(decoded.blobs[0].hash).toBe(hash);
+  });
+
+  test('skips bundled entries whose hash is missing from BundleStore', async () => {
+    const { BundleStore } = await import('../assets/BundleStore');
+    const { decodeSaveZip } = await import('./SaveFile');
+    const manifest: AssetEntry[] = [
+      { slug: 'custom:missing', name: 'M', type: 'image', url: '', preload: false, bundled: true, hash: 'f'.repeat(64) },
+    ];
+    await downloadSceneFile([], null, manifest, undefined, undefined, new BundleStore());
+    const [zipBlob] = downloadMock.mock.calls[0] as [Blob, string];
+    const bytes     = new Uint8Array(await zipBlob.arrayBuffer());
+    const decoded   = await decodeSaveZip(bytes);
+    expect(decoded.blobs).toEqual([]);
+  });
 });

@@ -21,6 +21,7 @@ import { type AssetEntry, type AssetType, validateSlug } from '../assets/Manifes
 import { initialTurnState, type TurnState } from '../seats/TurnTracker';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { encodeZip, decodeZip, looksLikeZip } from './saveZip';
+import { hashBlob } from '../assets/BundleHasher';
 
 export const SAVE_FORMAT             = 'vtt-scene';
 export const SAVE_VERSION            = 2;
@@ -213,6 +214,19 @@ function decodeManifest(raw: unknown): AssetEntry[] {
         throw new SaveFileError(`manifest[${i}].rows must be a positive integer.`);
       }
     }
+    if (e.bundled !== undefined && typeof e.bundled !== 'boolean') {
+      throw new SaveFileError(`manifest[${i}].bundled must be a boolean.`);
+    }
+    if (e.hash !== undefined && typeof e.hash !== 'string') {
+      throw new SaveFileError(`manifest[${i}].hash must be a string.`);
+    }
+    if (e.bundled === true) {
+      if (typeof e.hash !== 'string' || !/^[a-f0-9]{64}$/.test(e.hash)) {
+        throw new SaveFileError(`manifest[${i}].hash must be 64 lowercase hex chars when bundled.`);
+      }
+    } else if (e.hash !== undefined) {
+      throw new SaveFileError(`manifest[${i}].hash is only valid on bundled entries.`);
+    }
     return {
       slug,
       name:        e.name,
@@ -222,6 +236,7 @@ function decodeManifest(raw: unknown): AssetEntry[] {
       description: e.description as string | undefined,
       tags:        e.tags ? [...(e.tags as string[])] : undefined,
       ...(e.type === 'spritesheet' ? { cols: e.cols as number, rows: e.rows as number } : {}),
+      ...(e.bundled === true ? { bundled: true, hash: e.hash as string } : {}),
     };
   });
 }
@@ -237,6 +252,8 @@ function cloneAssetEntry(e: AssetEntry): AssetEntry {
     tags:        e.tags ? [...e.tags] : undefined,
     cols:        e.cols,
     rows:        e.rows,
+    bundled:     e.bundled,
+    hash:        e.hash,
   };
 }
 
@@ -299,8 +316,15 @@ export async function encodeSaveZip(
   return new Blob([zip], { type: 'application/zip' });
 }
 
-// Decode a v2 save zip. Validates the envelope via decodeSaveFile and
-// preserves the raw blobs for the caller to pump into BundleStore (#8).
+// Decode a v2 save zip. Validates the envelope via decodeSaveFile, then:
+//   - Filters blobs to those referenced by a `bundled` manifest entry —
+//     orphans are silently dropped (defensive against malformed zips).
+//   - Hash-verifies each surviving blob: filename must equal the SHA-256
+//     of the actual bytes. Mismatch → reject the load with SaveFileError
+//     so no partial state ever reaches the host.
+//
+// Returns the verified set ready for the caller to pump into BundleStore
+// + BundleCache.
 export async function decodeSaveZip(bytes: Uint8Array): Promise<{
   envelope: SaveEnvelope;
   blobs:    SaveZipBundle[];
@@ -308,10 +332,25 @@ export async function decodeSaveZip(bytes: Uint8Array): Promise<{
   const { envelopeBytes, blobs } = await decodeZip(bytes);
   const text     = new TextDecoder().decode(envelopeBytes);
   const envelope = decodeSaveFile(text);
-  return {
-    envelope,
-    blobs: blobs.map(b => ({ hash: b.name, blob: new Blob([b.bytes]) })),
-  };
+
+  const referenced = new Set<string>();
+  for (const e of envelope.manifest) {
+    if (e.bundled === true && typeof e.hash === 'string') referenced.add(e.hash);
+  }
+
+  const verified: SaveZipBundle[] = [];
+  for (const b of blobs) {
+    if (!referenced.has(b.name)) continue; // orphan, skip
+    const blob       = new Blob([b.bytes]);
+    const actualHash = await hashBlob(blob);
+    if (actualHash !== b.name) {
+      throw new SaveFileError(
+        `Bundle hash mismatch for ${b.name}: bytes hash to ${actualHash}`,
+      );
+    }
+    verified.push({ hash: b.name, blob });
+  }
+  return { envelope, blobs: verified };
 }
 
 // Re-export so callers can sniff bytes without importing from saveZip.

@@ -17,7 +17,7 @@ import { GenerateDeckModal, type GenerateDeckRequest } from './GenerateDeckModal
 import { HostToolsMenu, type MenuEntry } from './HostToolsMenu';
 import { RoomSettingsModal } from './RoomSettingsModal';
 import { type PublicBanEntry } from '../net/ConnectionManager';
-import { type SaveEnvelope } from '../entity/SaveFile';
+import { type SaveEnvelope, type SaveZipBundle } from '../entity/SaveFile';
 import { downloadSceneFile } from '../entity/downloadSceneFile';
 import { type LastLoaded, type SceneHistoryService } from '../entity/SceneHistoryService';
 import { type ScriptErrorLog } from '../scripting/ScriptErrorLog';
@@ -31,7 +31,7 @@ interface Props {
   onToggleShowAllZones: (on: boolean) => void;
   showSnapPoints:         boolean;
   onToggleShowSnapPoints: (on: boolean) => void;
-  onLoad:               (envelope: SaveEnvelope, filename: string) => void;
+  onLoad:               (envelope: SaveEnvelope, filename: string, bundles: SaveZipBundle[]) => void;
   onRevert:             () => void;
   lastLoaded:           LastLoaded | null;
   currentEntityCount:   number;
@@ -139,12 +139,13 @@ export function HostActionBar({
 
   const handleSave = () => {
     const thumbnail = handle.captureThumbnail();
-    downloadSceneFile(
+    void downloadSceneFile(
       handle.controller.snapshot(),
       thumbnail,
       manifestStore?.getDraft().toArray() ?? [],
       handle.controller.scripting?.getScriptState(),
       turns,
+      bundleStore,
     );
   };
 

@@ -283,22 +283,60 @@ describe('SaveFile zip round-trip', () => {
     expect(decoded.blobs).toEqual([]);
   });
 
-  test('encode → decode preserves bundled blobs by hash', async () => {
-    const envelope = encodeSaveFile({ scene: [], thumbnail: null });
+  test('encode → decode preserves manifest-referenced blobs by hash', async () => {
+    const { hashBlob } = await import('../assets/BundleHasher');
     const blob1    = new Blob([new Uint8Array([1, 2, 3])]);
     const blob2    = new Blob([new Uint8Array([4, 5, 6, 7])]);
+    const hash1    = await hashBlob(blob1);
+    const hash2    = await hashBlob(blob2);
+    const envelope = encodeSaveFile({
+      scene:    [],
+      thumbnail: null,
+      manifest: [
+        { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash: hash1 },
+        { slug: 'custom:b', name: 'B', type: 'sound', url: '', preload: false, bundled: true, hash: hash2 },
+      ],
+    });
     const zipBlob  = await encodeSaveZip(envelope, [
-      { hash: 'a'.repeat(64), blob: blob1 },
-      { hash: 'b'.repeat(64), blob: blob2 },
+      { hash: hash1, blob: blob1 },
+      { hash: hash2, blob: blob2 },
     ]);
     const bytes   = new Uint8Array(await zipBlob.arrayBuffer());
     const decoded = await decodeSaveZip(bytes);
     expect(decoded.blobs.length).toBe(2);
     const byHash = new Map(decoded.blobs.map(b => [b.hash, b.blob]));
-    expect(Array.from(new Uint8Array(await byHash.get('a'.repeat(64))!.arrayBuffer())))
+    expect(Array.from(new Uint8Array(await byHash.get(hash1)!.arrayBuffer())))
       .toEqual([1, 2, 3]);
-    expect(Array.from(new Uint8Array(await byHash.get('b'.repeat(64))!.arrayBuffer())))
+    expect(Array.from(new Uint8Array(await byHash.get(hash2)!.arrayBuffer())))
       .toEqual([4, 5, 6, 7]);
+  });
+
+  test('decodeSaveZip skips orphan blobs not referenced by manifest', async () => {
+    const { hashBlob } = await import('../assets/BundleHasher');
+    const orphan = new Blob([new Uint8Array([9, 9, 9])]);
+    const orphanHash = await hashBlob(orphan);
+    // Manifest is empty — the blob has no manifest entry referencing it.
+    const envelope = encodeSaveFile({ scene: [], thumbnail: null });
+    const zipBlob  = await encodeSaveZip(envelope, [{ hash: orphanHash, blob: orphan }]);
+    const bytes    = new Uint8Array(await zipBlob.arrayBuffer());
+    const decoded  = await decodeSaveZip(bytes);
+    expect(decoded.blobs).toEqual([]);
+  });
+
+  test('decodeSaveZip rejects on hash mismatch for a referenced blob', async () => {
+    // Manifest references a hash, but the zip's bytes hash to something else.
+    const claimedHash = 'a'.repeat(64);
+    const envelope = encodeSaveFile({
+      scene:    [],
+      thumbnail: null,
+      manifest: [
+        { slug: 'custom:tampered', name: 'T', type: 'image', url: '', preload: false, bundled: true, hash: claimedHash },
+      ],
+    });
+    const bytes   = new Uint8Array(await (await encodeSaveZip(envelope, [
+      { hash: claimedHash, blob: new Blob([new Uint8Array([1, 2, 3, 4, 5])]) },
+    ])).arrayBuffer());
+    await expect(decodeSaveZip(bytes)).rejects.toThrow(/hash mismatch/i);
   });
 
   test('decodeSaveZip rejects an envelope with unknown component typeId', async () => {
