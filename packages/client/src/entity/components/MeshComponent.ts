@@ -205,7 +205,7 @@ export class MeshComponent extends EntityComponent<MeshState> {
     if (name === 'rotate-cw' || name === 'rotate-ccw') {
       const amountDeg = ctx.preferences.rotateAmount;
       const sign = name === 'rotate-cw' ? -1 : 1;
-      this.rotateYaw(sign * amountDeg);
+      this.rotateYawSnapped(sign, amountDeg);
       return;
     }
   }
@@ -221,18 +221,29 @@ export class MeshComponent extends EntityComponent<MeshState> {
     }
   }
 
-  // Rotate around world +Y by `amountDeg` via the sibling TweenComponent.
-  // Positive = CCW when viewed from above; negative = CW. Premultiplies the
-  // rotation onto current orientation so the axis stays world-Y regardless of
-  // the entity's current tilt.
-  private rotateYaw(amountDeg: number): void {
+  // Rotate around world +Y to the next/previous yaw multiple of `amountDeg`
+  // (sign = +1 → CCW / next grid step, sign = -1 → CW / previous grid step).
+  // Snaps so that off-grid yaws align to the table — e.g. yaw=5° + CCW(15°)
+  // lands on 15°, not 20°. Current yaw is extracted via YXZ Euler so the
+  // snap remains stable when the entity is tilted.
+  private rotateYawSnapped(sign: 1 | -1, amountDeg: number): void {
     const transform = this.entity.getComponent(TransformComponent);
     const tween     = this.entity.getComponent(TweenComponent);
     if (!transform || !tween) return;
+    if (amountDeg <= 0) return;
     const [qx, qy, qz, qw] = transform.state.rotation;
-    const cur    = new THREE.Quaternion(qx, qy, qz, qw);
-    const dq     = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), amountDeg * Math.PI / 180);
-    const target = cur.premultiply(dq);
+    const cur          = new THREE.Quaternion(qx, qy, qz, qw);
+    const euler        = new THREE.Euler().setFromQuaternion(cur, 'YXZ');
+    const curYawDeg    = euler.y * 180 / Math.PI;
+    // Epsilon absorbs float error so an on-grid yaw advances a full step
+    // rather than sticking to itself.
+    const EPS = 1e-3;
+    const targetYawDeg = sign > 0
+      ? (Math.floor((curYawDeg + EPS) / amountDeg) + 1) * amountDeg
+      : (Math.ceil ((curYawDeg - EPS) / amountDeg) - 1) * amountDeg;
+    const deltaDeg     = targetYawDeg - curYawDeg;
+    const dq           = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), deltaDeg * Math.PI / 180);
+    const target       = cur.premultiply(dq);
     tween.tweenTo({
       position: transform.state.position,
       rotation: [target.x, target.y, target.z, target.w],
