@@ -4,6 +4,7 @@ import { type AssetEntry, type AssetType, isSlug, Manifest } from './Manifest';
 import { parseRef } from './spriteRef';
 import { spriteUV } from './spriteUV';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from './baseManifest';
+import type { BundleStore } from './BundleStore';
 
 // Single funnel for asset loads. Issues #1, #2, and #9 of
 // issues--asset-registry.md.
@@ -153,6 +154,11 @@ export interface AssetServiceOptions {
   modelLoader?: ModelLoader;
   soundLoader?: SoundLoader;
   manifests?:   Manifest[];
+  // Optional content-addressed blob lookup for bundled custom assets. When
+  // a manifest entry has `bundled: true`, AssetService resolves its bytes
+  // from this store rather than fetching `entry.url`. Issue #10 wires the
+  // miss-path to a WebRTC pull; today a miss collapses to `broken`.
+  bundleStore?: BundleStore;
 }
 
 export type ProgressListener = (pending: number) => void;
@@ -166,6 +172,7 @@ export class AssetService {
   private modelLoader:        ModelLoader;
   private soundLoader:        SoundLoader;
   private manifests:          Manifest[] = [];
+  private bundleStore:        BundleStore | undefined;
   private pending             = 0;
   private progressListeners   = new Set<ProgressListener>();
 
@@ -173,6 +180,7 @@ export class AssetService {
     this.imageLoader = opts.imageLoader ?? defaultImageLoader;
     this.modelLoader = opts.modelLoader ?? defaultModelLoader;
     this.soundLoader = opts.soundLoader ?? defaultSoundLoader;
+    this.bundleStore = opts.bundleStore;
     if (opts.manifests) this.manifests = [...opts.manifests];
   }
 
@@ -400,6 +408,10 @@ export class AssetService {
     if (isSlug(ref)) {
       const found = this.lookupSlug(ref);
       if (found && found.type === 'image') {
+        if (found.bundled === true) {
+          entry.loadPromise = this.loadBundledImage(entry, found.hash!);
+          return;
+        }
         url = found.url;
       } else {
         slugBroken = true;
@@ -430,6 +442,41 @@ export class AssetService {
         return entry.texture;
       },
     );
+  }
+
+  // Resolve a bundled image entry through BundleStore. Hits decode via the
+  // image loader against an Object URL that is created at the start of the
+  // load and revoked exactly once after the loader settles (success OR
+  // failure). Misses collapse to 'broken' — issue #10 wires the WebRTC
+  // pull into this miss path.
+  private loadBundledImage(entry: ImageEntry, hash: string): Promise<THREE.Texture> {
+    const blob = this.bundleStore?.get(hash);
+    if (!blob) {
+      // Defer the broken transition to a microtask so a subscribe() that
+      // attaches after startImageLoad observes the canonical pending →
+      // broken sequence (same shape as a URL-loader rejection).
+      return Promise.resolve().then(() => {
+        entry.status = 'broken';
+        for (const l of entry.listeners) l(entry.texture, 'broken');
+        return entry.texture;
+      });
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    return this.imageLoader(objectUrl).then(
+      (tex) => {
+        entry.status  = 'loaded';
+        entry.texture = tex;
+        for (const l of entry.listeners) l(tex, 'loaded');
+        return tex;
+      },
+      () => {
+        entry.status = 'broken';
+        for (const l of entry.listeners) l(entry.texture, 'broken');
+        return entry.texture;
+      },
+    ).finally(() => {
+      URL.revokeObjectURL(objectUrl);
+    });
   }
 
   // Resolve a 3-segment sprite ref. Validates the parent sheet exists and the
@@ -584,6 +631,10 @@ export class AssetService {
     if (isSlug(ref)) {
       const found = this.lookupSlug(ref);
       if (found && found.type === 'sound') {
+        if (found.bundled === true) {
+          entry.loadPromise = this.loadBundledSound(entry, found.hash!);
+          return;
+        }
         url = found.url;
       } else {
         slugBroken = true;
@@ -617,6 +668,35 @@ export class AssetService {
     );
   }
 
+  private loadBundledSound(entry: SoundEntry, hash: string): Promise<AudioBuffer | null> {
+    const blob = this.bundleStore?.get(hash);
+    if (!blob) {
+      return Promise.resolve().then(() => {
+        entry.status = 'broken';
+        entry.buffer = null;
+        for (const l of entry.listeners) l(null, 'broken');
+        return null;
+      });
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    return this.soundLoader(objectUrl).then(
+      (buf) => {
+        entry.status = 'loaded';
+        entry.buffer = buf;
+        for (const l of entry.listeners) l(buf, 'loaded');
+        return buf as AudioBuffer | null;
+      },
+      () => {
+        entry.status = 'broken';
+        entry.buffer = null;
+        for (const l of entry.listeners) l(null, 'broken');
+        return null;
+      },
+    ).finally(() => {
+      URL.revokeObjectURL(objectUrl);
+    });
+  }
+
   private startModelLoad(ref: string, entry: ModelEntry): void {
     let url:        string;
     let slugBroken = false;
@@ -624,6 +704,10 @@ export class AssetService {
     if (isSlug(ref)) {
       const found = this.lookupSlug(ref);
       if (found && found.type === 'model') {
+        if (found.bundled === true) {
+          entry.loadPromise = this.loadBundledModel(entry, found.hash!);
+          return;
+        }
         url = found.url;
       } else {
         slugBroken = true;
@@ -657,6 +741,33 @@ export class AssetService {
         return entry.object3d;
       },
     );
+  }
+
+  private loadBundledModel(entry: ModelEntry, hash: string): Promise<THREE.Object3D> {
+    const blob = this.bundleStore?.get(hash);
+    if (!blob) {
+      return Promise.resolve().then(() => {
+        entry.status = 'broken';
+        for (const l of entry.listeners) l(entry.object3d, 'broken');
+        return entry.object3d;
+      });
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    return this.modelLoader(objectUrl).then(
+      (obj) => {
+        entry.status   = 'loaded';
+        entry.object3d = obj;
+        for (const l of entry.listeners) l(obj, 'loaded');
+        return obj;
+      },
+      () => {
+        entry.status = 'broken';
+        for (const l of entry.listeners) l(entry.object3d, 'broken');
+        return entry.object3d;
+      },
+    ).finally(() => {
+      URL.revokeObjectURL(objectUrl);
+    });
   }
 }
 

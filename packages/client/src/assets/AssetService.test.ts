@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { AssetService, type AssetStatus, getImagePlaceholder, getModelPlaceholder } from './AssetService';
 import { Manifest, type AssetEntry } from './Manifest';
 import { spriteUV } from './spriteUV';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from './baseManifest';
+import { BundleStore } from './BundleStore';
 
 const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0));
 
@@ -660,5 +661,168 @@ describe('AssetService sprite-ref resolution', () => {
     svc.setManifests([Manifest.from([sheetEntry])]);
     await flushMicrotasks();
     expect(seen[seen.length - 1]).toBe('loaded');
+  });
+});
+
+// Object URL helpers don't exist in the node test environment. Tests that
+// exercise the bundled load path stub them onto globalThis so they can both
+// fake the URL string the loader receives and assert revoke is called once
+// after each decode.
+function stubObjectUrl(): { createMock: ReturnType<typeof vi.fn>; revokeMock: ReturnType<typeof vi.fn>; restore: () => void } {
+  let id = 0;
+  const createMock = vi.fn((blob: Blob) => `blob:fake#${++id}-size${blob.size}`);
+  const revokeMock = vi.fn();
+  const URLAny    = URL as unknown as Record<string, unknown>;
+  const original  = {
+    create: URLAny.createObjectURL,
+    revoke: URLAny.revokeObjectURL,
+  };
+  URLAny.createObjectURL = createMock;
+  URLAny.revokeObjectURL = revokeMock;
+  return {
+    createMock,
+    revokeMock,
+    restore: () => {
+      if (original.create === undefined) delete URLAny.createObjectURL;
+      else                                URLAny.createObjectURL = original.create;
+      if (original.revoke === undefined) delete URLAny.revokeObjectURL;
+      else                                URLAny.revokeObjectURL = original.revoke;
+    },
+  };
+}
+
+const HASH = 'a'.repeat(64);
+
+const bundledImageEntry: AssetEntry = {
+  slug: 'custom:bundled-img', name: 'BImg', type: 'image',
+  url:  '', preload: false, bundled: true, hash: HASH,
+};
+
+const bundledModelEntry: AssetEntry = {
+  slug: 'custom:bundled-mdl', name: 'BMdl', type: 'model',
+  url:  '', preload: false, bundled: true, hash: HASH,
+};
+
+const bundledSoundEntry: AssetEntry = {
+  slug: 'custom:bundled-snd', name: 'BSnd', type: 'sound',
+  url:  '', preload: false, bundled: true, hash: HASH,
+};
+
+describe('AssetService — bundled entries via BundleStore', () => {
+  let urlStub: ReturnType<typeof stubObjectUrl>;
+
+  beforeEach(() => { urlStub = stubObjectUrl(); });
+  afterEach(()  => { urlStub.restore(); });
+
+  test('image bundled hit loads via object URL and revokes once after decode', async () => {
+    const tex   = new THREE.Texture();
+    const store = new BundleStore();
+    store.put(HASH, new Blob([new Uint8Array([1, 2, 3])]));
+    const seenUrls: string[] = [];
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledImageEntry])],
+      imageLoader: (url) => { seenUrls.push(url); return Promise.resolve(tex); },
+      bundleStore: store,
+    });
+    const seen: { status: AssetStatus; tex: THREE.Texture }[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (t, s) => seen.push({ tex: t, status: s }));
+    await flushMicrotasks();
+
+    expect(seen.map(s => s.status)).toEqual(['pending', 'loaded']);
+    expect(seen[1].tex).toBe(tex);
+    expect(seenUrls.length).toBe(1);
+    expect(seenUrls[0]).toMatch(/^blob:fake#/);
+    expect(urlStub.createMock).toHaveBeenCalledTimes(1);
+    expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
+    expect(urlStub.revokeMock).toHaveBeenCalledWith(seenUrls[0]);
+  });
+
+  test('image bundled miss → broken status, no loader call, no object URL', async () => {
+    const loader = vi.fn();
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledImageEntry])],
+      imageLoader: loader,
+      bundleStore: new BundleStore(),
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen).toEqual(['pending', 'broken']);
+    expect(loader).not.toHaveBeenCalled();
+    expect(urlStub.createMock).not.toHaveBeenCalled();
+  });
+
+  test('image bundled with no bundleStore configured → broken', async () => {
+    const loader = vi.fn();
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledImageEntry])],
+      imageLoader: loader,
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen).toEqual(['pending', 'broken']);
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  test('model bundled hit resolves to the loader Object3D', async () => {
+    const obj   = new THREE.Group();
+    const store = new BundleStore();
+    store.put(HASH, new Blob([new Uint8Array(5)]));
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledModelEntry])],
+      modelLoader: () => Promise.resolve(obj),
+      bundleStore: store,
+    });
+    const seen: { obj: THREE.Object3D; status: AssetStatus }[] = [];
+    svc.subscribe('custom:bundled-mdl', 'model', (o, s) => seen.push({ obj: o, status: s }));
+    await flushMicrotasks();
+    expect(seen.map(s => s.status)).toEqual(['pending', 'loaded']);
+    expect(seen[1].obj).toBe(obj);
+    expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('sound bundled hit resolves to the loader AudioBuffer', async () => {
+    const buf   = { duration: 1 } as unknown as AudioBuffer;
+    const store = new BundleStore();
+    store.put(HASH, new Blob([new Uint8Array(5)]));
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledSoundEntry])],
+      soundLoader: () => Promise.resolve(buf),
+      bundleStore: store,
+    });
+    const seen: { buf: AudioBuffer | null; status: AssetStatus }[] = [];
+    svc.subscribe('custom:bundled-snd', 'sound', (b, s) => seen.push({ buf: b, status: s }));
+    await flushMicrotasks();
+    expect(seen.map(s => s.status)).toEqual(['pending', 'loaded']);
+    expect(seen[1].buf).toBe(buf);
+    expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('object URL revoked exactly once even when the loader rejects', async () => {
+    const store = new BundleStore();
+    store.put(HASH, new Blob(['x']));
+    const svc = new AssetService({
+      manifests:   [Manifest.from([bundledImageEntry])],
+      imageLoader: () => Promise.reject(new Error('decode failed')),
+      bundleStore: store,
+    });
+    const seen: AssetStatus[] = [];
+    svc.subscribe('custom:bundled-img', 'image', (_t, s) => seen.push(s));
+    await flushMicrotasks();
+    expect(seen).toEqual(['pending', 'broken']);
+    expect(urlStub.createMock).toHaveBeenCalledTimes(1);
+    expect(urlStub.revokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('non-bundled URL entries do NOT touch URL.createObjectURL', async () => {
+    const svc = new AssetService({
+      imageLoader: () => Promise.resolve(new THREE.Texture()),
+      bundleStore: new BundleStore(),
+    });
+    svc.subscribe('http://x/normal.png', 'image', () => {});
+    await flushMicrotasks();
+    expect(urlStub.createMock).not.toHaveBeenCalled();
+    expect(urlStub.revokeMock).not.toHaveBeenCalled();
   });
 });
