@@ -49,6 +49,26 @@ describe('formatBytes', () => {
   });
 });
 
+describe('useBundleSize snapshot stability (regression — infinite loop fix)', () => {
+  // useBundleSize relies on ManifestStore.getDraft() returning a stable
+  // Manifest reference between edits. If that breaks, React's
+  // useSyncExternalStore tears the tree with "result of getSnapshot
+  // should be cached to avoid an infinite loop".
+  test('ManifestStore.getDraft returns the same reference across reads when unchanged', async () => {
+    const { ManifestStore } = await import('./ManifestStore');
+    const s = new ManifestStore(Manifest.from([bundled('custom:a', HASH, 1024)]));
+    expect(s.getDraft()).toBe(s.getDraft());
+  });
+
+  test('ManifestStore.getDraft returns a new reference after an edit', async () => {
+    const { ManifestStore } = await import('./ManifestStore');
+    const s = new ManifestStore();
+    const a = s.getDraft();
+    s.editDraft((d) => d.add(bundled('custom:a', HASH, 1024)));
+    expect(s.getDraft()).not.toBe(a);
+  });
+});
+
 describe('thresholds', () => {
   test('SINGLE_ASSET_WARN_BYTES = 50 MB', () => {
     expect(SINGLE_ASSET_WARN_BYTES).toBe(50 * 1024 * 1024);

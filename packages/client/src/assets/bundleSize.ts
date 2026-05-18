@@ -6,9 +6,14 @@
 // The host can override both. Centralised here so tuning lives in one
 // place and tests can import the numbers without hard-coding.
 
-import { useSyncExternalStore } from 'react';
-import { type Manifest } from './Manifest';
+import { useMemo, useSyncExternalStore } from 'react';
+import { Manifest } from './Manifest';
 import { type ManifestStore } from './ManifestStore';
+
+// Shared empty-manifest sentinel so the null-store getSnapshot returns a
+// stable reference across renders (React's useSyncExternalStore tears
+// the tree when the snapshot changes identity).
+const EMPTY_MANIFEST = Manifest.empty();
 
 export const SINGLE_ASSET_WARN_BYTES = 50  * 1024 * 1024;   // 50 MB
 export const TOTAL_WARN_BYTES        = 500 * 1024 * 1024;   // 500 MB
@@ -29,13 +34,17 @@ export function bundleSizeOf(manifest: Manifest): { count: number; bytes: number
 }
 
 // React hook for the AssetManagerModal footer + total-save banner.
-// Subscribes to ManifestStore changes via useSyncExternalStore so the
-// number updates without an explicit refresh.
+// Two-step: snapshot the immutable Manifest reference (stable per edit)
+// via useSyncExternalStore, then derive the totals in useMemo. Returning
+// the size object directly from getSnapshot would re-render forever —
+// React requires identity stability when the underlying data hasn't
+// changed.
 export function useBundleSize(store: ManifestStore | null): { count: number; bytes: number } {
-  return useSyncExternalStore(
+  const manifest = useSyncExternalStore(
     (cb) => store?.subscribe(cb) ?? (() => {}),
-    () => store ? bundleSizeOf(store.getDraft()) : { count: 0, bytes: 0 },
+    () => store?.getDraft() ?? EMPTY_MANIFEST,
   );
+  return useMemo(() => bundleSizeOf(manifest), [manifest]);
 }
 
 // Human-readable rendering — KB / MB / GB picked by magnitude. Plain
