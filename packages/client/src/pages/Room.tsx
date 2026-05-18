@@ -38,6 +38,9 @@ import { type ScriptErrorLog } from '../scripting/ScriptErrorLog';
 import { type SceneHandle } from '../entity/world';
 import { ManifestStore } from '../assets/ManifestStore';
 import { assetService } from '../assets/AssetService';
+import { BundleStore } from '../assets/BundleStore';
+import { BundleCache } from '../assets/BundleCache';
+import { IdbBundleCacheDriver } from '../assets/IdbBundleCacheDriver';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from '../assets/baseManifest';
 import { AssetLoadingIndicator } from '../components/AssetLoadingIndicator';
 import './Room.css';
@@ -85,6 +88,8 @@ export function Room({ roomId, isHost }: Props) {
   const [scriptSource, setScriptSource]     = useState<string>('');
   const [scriptErrorLog, setScriptErrorLog] = useState<ScriptErrorLog | null>(null);
   const [manifestStore, setManifestStore]   = useState<ManifestStore | null>(null);
+  const [bundleStore, setBundleStore]       = useState<BundleStore | null>(null);
+  const [bundleCache, setBundleCache]       = useState<BundleCache | null>(null);
   const [handle, setHandle]                 = useState<SceneHandle | null>(null);
 
   const managerRef         = useRef<RoomStateManager | null>(null);
@@ -426,6 +431,40 @@ export function Room({ roomId, isHost }: Props) {
     setHighlightRef.current(selectedId);
   }, [selectedId]);
 
+  // Bundled-asset stack — both roles share an in-memory BundleStore (the
+  // hot-path lookup for the AssetService bundled branch) and a persistent
+  // BundleCache backed by IndexedDB. Host-authored uploads land pinned so
+  // they survive LRU eviction; peer-fetched bytes (#10) land unpinned. The
+  // store rehydrates synchronously from cache.list({pinned:true}) at boot
+  // so refreshing the page mid-session preserves uploaded assets without a
+  // re-upload.
+  useEffect(() => {
+    const cache = new BundleCache({ driver: new IdbBundleCacheDriver() });
+    const store = new BundleStore();
+    setBundleCache(cache);
+    setBundleStore(store);
+    assetService.setBundleStore(store);
+    let cancelled = false;
+    void cache.list({ pinned: true }).then((records) => {
+      if (cancelled) return;
+      for (const r of records) store.put(r.hash, r.blob);
+      // Bundled entries that subscribed before rehydration finished went
+      // 'broken' on miss. Invalidate them so they re-resolve through the
+      // newly-populated store.
+      const ms = manifestStoreRef.current;
+      if (!ms) return;
+      for (const e of ms.getDraft().toArray()) {
+        if (e.bundled === true) assetService.invalidate(e.slug);
+      }
+    });
+    return () => {
+      cancelled = true;
+      assetService.setBundleStore(undefined);
+      setBundleCache(null);
+      setBundleStore(null);
+    };
+  }, []);
+
   // Manifest store — both roles. Host edits draft locally and pushes to peers
   // via the manager modal; guests receive published snapshots through
   // `applyPublishedSnapshot`. AssetService follows the draft so the host
@@ -607,6 +646,8 @@ export function Room({ roomId, isHost }: Props) {
               onScriptChange={setScriptSource}
               scriptErrorLog={scriptErrorLog}
               manifestStore={manifestStore}
+              bundleStore={bundleStore ?? undefined}
+              bundleCache={bundleCache ?? undefined}
               onPushManifest={() => {
                 const store = manifestStoreRef.current;
                 if (!store) return;

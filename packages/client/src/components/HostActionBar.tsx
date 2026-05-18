@@ -11,6 +11,8 @@ import { HistoryModal } from './HistoryModal';
 import { ScriptEditorModal } from './ScriptEditorModal';
 import { ScriptConsoleModal } from './ScriptConsoleModal';
 import { AssetManagerModal } from './AssetManagerModal';
+import { type BundleStore } from '../assets/BundleStore';
+import { type BundleCache } from '../assets/BundleCache';
 import { GenerateDeckModal, type GenerateDeckRequest } from './GenerateDeckModal';
 import { HostToolsMenu, type MenuEntry } from './HostToolsMenu';
 import { RoomSettingsModal } from './RoomSettingsModal';
@@ -39,6 +41,8 @@ interface Props {
   scriptErrorLog:       ScriptErrorLog | null;
   manifestStore:        ManifestStore | null;
   onPushManifest:       () => void;
+  bundleStore?:         BundleStore;
+  bundleCache?:         BundleCache;
   // Render-prop that supplies the turn-controls panel with controlled-open
   // wiring. HostActionBar owns the open flag so the panel toggles from the
   // Tools menu.
@@ -99,6 +103,8 @@ export function HostActionBar({
   scriptErrorLog,
   manifestStore,
   onPushManifest,
+  bundleStore,
+  bundleCache,
   turnControls,
   turns,
   roomName,
@@ -229,6 +235,8 @@ export function HostActionBar({
         open={assetsOpen}
         onOpenChange={setAssetsOpen}
         hideTrigger
+        bundleStore={bundleStore}
+        bundleCache={bundleCache}
       />
       <GenerateDeckModal
         store={manifestStore}

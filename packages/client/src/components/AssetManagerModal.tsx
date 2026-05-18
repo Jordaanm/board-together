@@ -21,6 +21,16 @@ import { type AssetEntry, type AssetType, validateSlug } from '../assets/Manifes
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from '../assets/baseManifest';
 import { assetService, type AssetStatus } from '../assets/AssetService';
 import { probe, type ProbeResult } from '../assets/corsPreflight';
+import { type BundleStore } from '../assets/BundleStore';
+import { type BundleCache } from '../assets/BundleCache';
+import {
+  bundleBlob,
+  entryFromUpload,
+  fileStemForName,
+  fileStemForSlug,
+  inferAssetTypeFromFile,
+  uniqueCustomSlug,
+} from '../assets/bundleUpload';
 
 interface Props {
   store:         ManifestStore | null;
@@ -28,6 +38,11 @@ interface Props {
   open?:         boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?:  boolean;
+  // Bundled-asset wiring. When provided, AddRow accepts file upload /
+  // drag-drop, CustomRow exposes "Bundle this" on URL entries, and EditRow
+  // exposes "Convert back to URL" on bundled entries.
+  bundleStore?:  BundleStore;
+  bundleCache?:  BundleCache;
 }
 
 type TabId = 'primitives' | 'base' | 'custom';
@@ -283,7 +298,10 @@ const WARNING_BADGE: React.CSSProperties = {
   flexShrink:     0,
 };
 
-export function AssetManagerModal({ store, onPush, open: controlledOpen, onOpenChange, hideTrigger }: Props) {
+export function AssetManagerModal({
+  store, onPush, open: controlledOpen, onOpenChange, hideTrigger,
+  bundleStore, bundleCache,
+}: Props) {
   const centerAnchor    = useAnchorTarget('center');
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
@@ -318,7 +336,13 @@ export function AssetManagerModal({ store, onPush, open: controlledOpen, onOpenC
             <div style={BODY}>
               {tab === 'primitives' && <ReadOnlyList entries={PRIMITIVE_MANIFEST.toArray()} />}
               {tab === 'base'       && <ReadOnlyList entries={BASE_MANIFEST.toArray()} />}
-              {tab === 'custom'     && store && <CustomTab store={store} />}
+              {tab === 'custom'     && store && (
+                <CustomTab
+                  store={store}
+                  bundleStore={bundleStore}
+                  bundleCache={bundleCache}
+                />
+              )}
             </div>
             <Footer store={store} onPush={onPush} />
           </Dialog.Content>
@@ -402,12 +426,19 @@ function isSyntheticUrl(url: string): boolean {
   return url.startsWith('placeholder://') || url.startsWith('primitive://');
 }
 
-function CustomTab({ store }: { store: ManifestStore }) {
+function CustomTab({
+  store, bundleStore, bundleCache,
+}: {
+  store:        ManifestStore;
+  bundleStore?: BundleStore;
+  bundleCache?: BundleCache;
+}) {
   const draft = useSyncExternalStore(
     (cb) => store.subscribe(cb),
     () => store.getDraft(),
   );
   const [editing, setEditing] = useState<string | null>(null);
+  const canBundle = bundleStore !== undefined && bundleCache !== undefined;
 
   const customEntries = useMemo(
     () => draft.list().filter((e) => e.slug.startsWith('custom:')),
@@ -416,23 +447,76 @@ function CustomTab({ store }: { store: ManifestStore }) {
 
   return (
     <>
-      <AddRow store={store} />
+      <AddRow
+        store={store}
+        bundleStore={bundleStore}
+        bundleCache={bundleCache}
+      />
       {customEntries.length === 0 && (
         <div style={{ color: 'var(--ink-mute)', fontSize: 12, padding: '12px 4px' }}>
-          No custom assets yet. Paste a URL above to add one.
+          No custom assets yet. {canBundle ? 'Drop a file or paste a URL above to add one.' : 'Paste a URL above to add one.'}
         </div>
       )}
       {customEntries.map((e) =>
         editing === e.slug
-          ? <EditRow key={e.slug} entry={e} store={store} onClose={() => setEditing(null)} />
-          : <CustomRow  key={e.slug} entry={e} onEdit={() => setEditing(e.slug)} onDelete={() => store.editDraft((d) => d.delete(e.slug))} />
+          ? <EditRow
+              key={e.slug}
+              entry={e}
+              store={store}
+              onClose={() => setEditing(null)}
+            />
+          : <CustomRow
+              key={e.slug}
+              entry={e}
+              store={store}
+              onEdit={() => setEditing(e.slug)}
+              onDelete={() => store.editDraft((d) => d.delete(e.slug))}
+              bundleStore={bundleStore}
+              bundleCache={bundleCache}
+            />
       )}
     </>
   );
 }
 
-function CustomRow({ entry, onEdit, onDelete }: { entry: AssetEntry; onEdit: () => void; onDelete: () => void }) {
+function CustomRow({
+  entry, store, onEdit, onDelete, bundleStore, bundleCache,
+}: {
+  entry:        AssetEntry;
+  store:        ManifestStore;
+  onEdit:       () => void;
+  onDelete:     () => void;
+  bundleStore?: BundleStore;
+  bundleCache?: BundleCache;
+}) {
   const status = useAssetStatus(entry);
+  const [bundling, setBundling] = useState(false);
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const canBundleThis =
+    bundleStore !== undefined
+    && bundleCache !== undefined
+    && entry.bundled !== true
+    && entry.url.length > 0
+    && !isSyntheticUrl(entry.url);
+
+  const handleBundleThis = async () => {
+    if (!bundleStore || !bundleCache) return;
+    setBundling(true);
+    setBundleError(null);
+    try {
+      const res  = await fetch(entry.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const hash = await bundleBlob(blob, bundleStore, bundleCache);
+      store.editDraft((d) => d.update(entry.slug, { bundled: true, hash }));
+      assetService.invalidate(entry.slug);
+    } catch (e) {
+      setBundleError((e as Error).message || 'Bundle failed.');
+    } finally {
+      setBundling(false);
+    }
+  };
+
   return (
     <div style={ROW}>
       <RowPreview entry={entry} />
@@ -443,10 +527,26 @@ function CustomRow({ entry, onEdit, onDelete }: { entry: AssetEntry; onEdit: () 
             <span style={WARNING_BADGE} title="Asset failed to load — check the URL">!</span>
           )}
         </div>
-        <div style={ROW_SLUG}>{entry.slug}{entry.preload ? ' · preload' : ''}</div>
+        <div style={ROW_SLUG}>
+          {entry.slug}
+          {entry.bundled ? ' · bundled' : ''}
+          {entry.preload ? ' · preload' : ''}
+        </div>
+        {bundleError && <div style={ERROR_LINE}>{bundleError}</div>}
       </div>
       <div style={ROW_TYPE}>{typeLabel(entry.type)}</div>
       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+        {canBundleThis && (
+          <button
+            type="button"
+            style={SMALL_BTN}
+            onClick={handleBundleThis}
+            disabled={bundling}
+            title="Fetch the URL and bundle the bytes locally so guests load it over WebRTC."
+          >
+            {bundling ? '…' : 'Bundle'}
+          </button>
+        )}
         <button type="button" style={SMALL_BTN}  onClick={onEdit}>Edit</button>
         <button type="button" style={DANGER_BTN} onClick={onDelete}>×</button>
       </div>
@@ -484,8 +584,10 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
   const [cols,        setCols]        = useState(entry.cols !== undefined ? String(entry.cols) : '');
   const [rows,        setRows]        = useState(entry.rows !== undefined ? String(entry.rows) : '');
   const [error,       setError]       = useState<string | null>(null);
+  const [showConvertConfirm, setShowConvertConfirm] = useState(false);
   const preflight = useUrlPreflight(url, entry.url);
   const isSheet   = entry.type === 'spritesheet';
+  const isBundled = entry.bundled === true;
 
   const commit = () => {
     if (name.trim().length === 0) { setError('Name is required.'); return; }
@@ -508,8 +610,10 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
       }));
       // URL changed → drop the cached fetch so subscribed consumers
       // observe the new asset on next resolve. For sheets, invalidate
-      // refires every sprite-ref subscriber too.
-      if (url !== entry.url) assetService.invalidate(entry.slug);
+      // refires every sprite-ref subscriber too. Bundled entries keep
+      // resolving via BundleStore, so a URL edit is just breadcrumb churn —
+      // no invalidate needed.
+      if (!isBundled && url !== entry.url) assetService.invalidate(entry.slug);
       // Grid changed → refire sprite subscribers against new cols/rows.
       else if (isSheet && (colsNum !== entry.cols || rowsNum !== entry.rows)) {
         assetService.invalidate(entry.slug);
@@ -520,15 +624,42 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
     }
   };
 
+  const convertToUrl = () => {
+    try {
+      store.editDraft((d) => d.update(entry.slug, { bundled: false, hash: undefined }));
+      assetService.invalidate(entry.slug);
+      setShowConvertConfirm(false);
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <div style={{ ...ROW, gridTemplateColumns: '1fr', display: 'block' }}>
       <div style={FIELD_GRID}>
         <div style={FIELD_LABEL}>Slug</div>
-        <div style={ROW_SLUG}>{entry.slug} (immutable)</div>
+        <div style={ROW_SLUG}>
+          {entry.slug} (immutable)
+          {isBundled && <span style={{ marginLeft: 6, color: 'var(--ink-2)' }}>· bundled</span>}
+        </div>
         <div style={FIELD_LABEL}>Name</div>
         <input style={INPUT} value={name} onChange={(e) => setName(e.target.value)} />
-        <div style={FIELD_LABEL}>URL</div>
-        <input style={INPUT} value={url} onChange={(e) => setUrl(e.target.value)} />
+        <div style={FIELD_LABEL}>{isBundled ? 'URL (breadcrumb)' : 'URL'}</div>
+        <input
+          style={INPUT}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder={isBundled ? 'Original source URL (optional)' : ''}
+        />
+        {isBundled && entry.hash && (
+          <>
+            <div style={FIELD_LABEL}>Hash</div>
+            <div style={{ ...ROW_SLUG, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }} title={entry.hash}>
+              {entry.hash.slice(0, 12)}…
+            </div>
+          </>
+        )}
         <div style={FIELD_LABEL}>Description</div>
         <input style={INPUT} value={description} onChange={(e) => setDescription(e.target.value)} />
         <div style={FIELD_LABEL}>Tags (comma)</div>
@@ -545,17 +676,71 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
           <input style={INPUT} type="number" min={1} step={1} value={rows} onChange={(e) => setRows(e.target.value)} />
         </>}
       </div>
-      <PreflightLine state={preflight} />
+      {!isBundled && <PreflightLine state={preflight} />}
       {error && <div style={ERROR_LINE}>{error}</div>}
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+        {isBundled && (
+          <button
+            type="button"
+            style={DANGER_BTN}
+            onClick={() => setShowConvertConfirm(true)}
+            title="Stop bundling these bytes; resolve from the URL field instead."
+          >
+            Convert back to URL
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
         <button type="button" style={SMALL_BTN} onClick={onClose}>Cancel</button>
         <button type="button" style={SMALL_BTN} onClick={commit}>Save</button>
       </div>
+      {showConvertConfirm && (
+        <ConvertToUrlConfirm
+          entry={entry}
+          onCancel={() => setShowConvertConfirm(false)}
+          onConfirm={convertToUrl}
+        />
+      )}
     </div>
   );
 }
 
-function AddRow({ store }: { store: ManifestStore }) {
+function ConvertToUrlConfirm({
+  entry, onCancel, onConfirm,
+}: { entry: AssetEntry; onCancel: () => void; onConfirm: () => void }) {
+  const centerAnchor = useAnchorTarget('center');
+  const hasUrl = entry.url.length > 0;
+  return (
+    <Dialog.Root open onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <Dialog.Portal container={centerAnchor ?? undefined}>
+        <Dialog.Overlay style={OVERLAY} />
+        <Dialog.Content style={{ ...CONTENT, height: 'auto', width: 440, padding: 16 }} aria-describedby={undefined}>
+          <Dialog.Title style={TITLE}>Convert to URL?</Dialog.Title>
+          <div style={{ fontSize: 12, margin: '8px 0', color: 'var(--ink-2)' }}>
+            <strong>{entry.name}</strong> will stop being bundled. Guests will load it directly
+            from{' '}
+            {hasUrl
+              ? <code style={{ background: 'var(--bg)', padding: '0 4px' }}>{entry.url}</code>
+              : <em>the URL you supply</em>}
+            {' '}instead of via WebRTC.
+            The bundled bytes stay in your local cache but are no longer referenced by this asset.
+          </div>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button type="button" style={SMALL_BTN}  onClick={onCancel}>Cancel</button>
+            <button type="button" style={DANGER_BTN} onClick={onConfirm}>Convert</button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function AddRow({
+  store, bundleStore, bundleCache,
+}: {
+  store:        ManifestStore;
+  bundleStore?: BundleStore;
+  bundleCache?: BundleCache;
+}) {
   const [url,     setUrl]     = useState('');
   const [slug,    setSlug]    = useState('');
   const [name,    setName]    = useState('');
@@ -565,8 +750,12 @@ function AddRow({ store }: { store: ManifestStore }) {
   const [rows,    setRows]    = useState('');
   const [error,   setError]   = useState<string | null>(null);
   const [staging, setStaging] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const preflight = useUrlPreflight(url, '');
   const isSheet   = type === 'spritesheet';
+  const canUpload = bundleStore !== undefined && bundleCache !== undefined;
 
   // Auto-suggest slug from URL filename when the user hasn't manually typed
   // one. Once the user edits the slug field, stop syncing.
@@ -609,15 +798,91 @@ function AddRow({ store }: { store: ManifestStore }) {
     }
   };
 
+  const handleUploadFile = async (file: File) => {
+    if (!bundleStore || !bundleCache) return;
+    setError(null);
+    const type = inferAssetTypeFromFile(file);
+    if (!type) {
+      setError(`Unsupported file type for "${file.name}". Use image / sound / model.`);
+      return;
+    }
+    setUploadStatus(`Hashing ${file.name}…`);
+    try {
+      const hash       = await bundleBlob(file, bundleStore, bundleCache);
+      const slug       = uniqueCustomSlug(fileStemForSlug(file.name), store.getDraft());
+      const entryName  = fileStemForName(file.name) || file.name;
+      store.editDraft((d) => d.add(entryFromUpload({
+        slug, name: entryName, type, hash, preload: true,
+      })));
+    } catch (e) {
+      setError(`Upload failed: ${(e as Error).message}`);
+    } finally {
+      setUploadStatus(null);
+    }
+  };
+
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again
+    if (file) void handleUploadFile(file);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!canUpload) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleUploadFile(file);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const onDragLeave = () => setDragOver(false);
+
   if (!staging) {
     return (
-      <div style={ADD_BAR}>
+      <div
+        style={{
+          ...ADD_BAR,
+          borderColor: dragOver ? 'var(--accent)' : 'var(--line-strong)',
+          background:  dragOver ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : undefined,
+        }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         <input
           style={{ ...INPUT, flex: 1 }}
-          placeholder="Paste a URL to add an asset…"
+          placeholder={canUpload ? 'Paste a URL or drop a file…' : 'Paste a URL to add an asset…'}
           value={url}
           onChange={(e) => { setUrl(e.target.value); setStaging(e.target.value.length > 0); }}
         />
+        {canUpload && (
+          <>
+            <button
+              type="button"
+              style={SMALL_BTN}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadStatus !== null}
+            >
+              Upload
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,audio/*,.glb,.gltf"
+              style={{ display: 'none' }}
+              onChange={onFileInputChange}
+            />
+          </>
+        )}
+        {uploadStatus && (
+          <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{uploadStatus}</span>
+        )}
+        {error && <span style={{ ...ERROR_LINE, margin: 0 }}>{error}</span>}
       </div>
     );
   }

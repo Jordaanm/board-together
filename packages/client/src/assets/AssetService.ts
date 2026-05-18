@@ -199,6 +199,13 @@ export class AssetService {
     for (const ref of [...this.sounds.keys()]) if (isSlug(ref)) this.invalidate(ref);
   }
 
+  // Wire (or rewire) the content-addressed BundleStore the bundled-asset
+  // resolution path consults. Room.tsx calls this once at boot after the
+  // BundleStore has been rehydrated from the IDB BundleCache.
+  setBundleStore(store: BundleStore | undefined): void {
+    this.bundleStore = store;
+  }
+
   lookupSlug(slug: string): AssetEntry | undefined {
     for (const m of this.manifests) {
       const e = m.get(slug);

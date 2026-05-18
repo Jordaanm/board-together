@@ -48,6 +48,17 @@ describe('ManifestStore — editDraft + unpushedCount', () => {
     s.editDraft((d) => d.update('custom:a', { name: 'A' }));
     expect(s.unpushedCount()).toBe(0);
   });
+
+  test('flipping bundled / hash is detected by unpushedCount', () => {
+    const HASH = 'a'.repeat(64);
+    const seed = Manifest.from([a]);
+    const s    = new ManifestStore(seed);
+    s.editDraft((d) => d.update('custom:a', { bundled: true, hash: HASH }));
+    expect(s.unpushedCount()).toBe(1);
+    s.push();
+    s.editDraft((d) => d.update('custom:a', { bundled: false, hash: undefined }));
+    expect(s.unpushedCount()).toBe(1);
+  });
 });
 
 describe('ManifestStore — push', () => {
