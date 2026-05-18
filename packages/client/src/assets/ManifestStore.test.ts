@@ -53,10 +53,10 @@ describe('ManifestStore — editDraft + unpushedCount', () => {
     const HASH = 'a'.repeat(64);
     const seed = Manifest.from([a]);
     const s    = new ManifestStore(seed);
-    s.editDraft((d) => d.update('custom:a', { bundled: true, hash: HASH }));
+    s.editDraft((d) => d.update('custom:a', { bundled: true, hash: HASH, size: 64 }));
     expect(s.unpushedCount()).toBe(1);
     s.push();
-    s.editDraft((d) => d.update('custom:a', { bundled: false, hash: undefined }));
+    s.editDraft((d) => d.update('custom:a', { bundled: false, hash: undefined, size: undefined }));
     expect(s.unpushedCount()).toBe(1);
   });
 });

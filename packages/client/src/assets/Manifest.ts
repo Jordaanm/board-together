@@ -27,8 +27,12 @@ export interface AssetEntry {
   // Bundled-asset fields (custom: namespace only). When `bundled === true`,
   // bytes are content-addressed in the BundleStore by `hash` (lowercase
   // SHA-256 hex); `url` is preserved as an optional breadcrumb only.
+  // `size` is the bundled blob's byte count, replicated in the manifest so
+  // peers can show totals before fetching bytes and so save / replication
+  // round-trips don't have to re-hash.
   bundled?:     boolean;
   hash?:        string;
+  size?:        number;
 }
 
 export class ManifestError extends Error {}
@@ -119,6 +123,9 @@ function validateEntry(entry: AssetEntry): void {
   if (entry.hash !== undefined && typeof entry.hash !== 'string') {
     throw new ManifestError(`entry "${entry.slug}": hash must be a string`);
   }
+  if (entry.size !== undefined && (typeof entry.size !== 'number' || !Number.isFinite(entry.size) || entry.size < 0 || !Number.isInteger(entry.size))) {
+    throw new ManifestError(`entry "${entry.slug}": size must be a non-negative integer`);
+  }
   if (entry.bundled === true) {
     if (namespaceOf(entry.slug) !== 'custom') {
       throw new ManifestError(`entry "${entry.slug}": bundled entries must use the "custom" namespace`);
@@ -129,8 +136,16 @@ function validateEntry(entry: AssetEntry): void {
     if (!HASH_RE.test(entry.hash)) {
       throw new ManifestError(`entry "${entry.slug}": hash must be 64 lowercase hex chars`);
     }
-  } else if (entry.hash !== undefined) {
-    throw new ManifestError(`entry "${entry.slug}": hash is only valid on bundled entries`);
+    if (typeof entry.size !== 'number') {
+      throw new ManifestError(`entry "${entry.slug}": bundled entries require a size`);
+    }
+  } else {
+    if (entry.hash !== undefined) {
+      throw new ManifestError(`entry "${entry.slug}": hash is only valid on bundled entries`);
+    }
+    if (entry.size !== undefined) {
+      throw new ManifestError(`entry "${entry.slug}": size is only valid on bundled entries`);
+    }
   }
 }
 

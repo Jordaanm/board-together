@@ -99,8 +99,8 @@ describe('downloadSceneFile', () => {
     const store = new BundleStore();
     store.put(hash, blob);
     const manifest: AssetEntry[] = [
-      { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash },
-      { slug: 'custom:b', name: 'B', type: 'image', url: '', preload: false, bundled: true, hash },
+      { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash, size: 4 },
+      { slug: 'custom:b', name: 'B', type: 'image', url: '', preload: false, bundled: true, hash, size: 4 },
     ];
     await downloadSceneFile([], null, manifest, undefined, undefined, store);
     const [zipBlob] = downloadMock.mock.calls[0] as [Blob, string];
@@ -114,7 +114,7 @@ describe('downloadSceneFile', () => {
     const { BundleStore } = await import('../assets/BundleStore');
     const { decodeSaveZip } = await import('./SaveFile');
     const manifest: AssetEntry[] = [
-      { slug: 'custom:missing', name: 'M', type: 'image', url: '', preload: false, bundled: true, hash: 'f'.repeat(64) },
+      { slug: 'custom:missing', name: 'M', type: 'image', url: '', preload: false, bundled: true, hash: 'f'.repeat(64), size: 1234 },
     ];
     await downloadSceneFile([], null, manifest, undefined, undefined, new BundleStore());
     const [zipBlob] = downloadMock.mock.calls[0] as [Blob, string];

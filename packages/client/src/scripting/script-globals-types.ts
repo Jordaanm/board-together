@@ -44,6 +44,7 @@ export interface EditorAssetEntry {
   readonly rows?:        number;
   readonly bundled?:     boolean;
   readonly hash?:        string;
+  readonly size?:        number;
 }
 
 export class EditorAssetsApi {

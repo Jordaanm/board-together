@@ -23,6 +23,7 @@ interface AssetEntry {
     readonly rows?: number;
     readonly bundled?: boolean;
     readonly hash?: string;
+    readonly size?: number;
 }
 
 declare class AssetsApi {

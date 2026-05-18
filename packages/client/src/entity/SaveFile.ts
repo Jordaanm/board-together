@@ -220,12 +220,23 @@ function decodeManifest(raw: unknown): AssetEntry[] {
     if (e.hash !== undefined && typeof e.hash !== 'string') {
       throw new SaveFileError(`manifest[${i}].hash must be a string.`);
     }
+    if (e.size !== undefined && (typeof e.size !== 'number' || !Number.isInteger(e.size) || e.size < 0)) {
+      throw new SaveFileError(`manifest[${i}].size must be a non-negative integer.`);
+    }
     if (e.bundled === true) {
       if (typeof e.hash !== 'string' || !/^[a-f0-9]{64}$/.test(e.hash)) {
         throw new SaveFileError(`manifest[${i}].hash must be 64 lowercase hex chars when bundled.`);
       }
-    } else if (e.hash !== undefined) {
-      throw new SaveFileError(`manifest[${i}].hash is only valid on bundled entries.`);
+      if (typeof e.size !== 'number') {
+        throw new SaveFileError(`manifest[${i}].size is required when bundled.`);
+      }
+    } else {
+      if (e.hash !== undefined) {
+        throw new SaveFileError(`manifest[${i}].hash is only valid on bundled entries.`);
+      }
+      if (e.size !== undefined) {
+        throw new SaveFileError(`manifest[${i}].size is only valid on bundled entries.`);
+      }
     }
     return {
       slug,
@@ -236,7 +247,7 @@ function decodeManifest(raw: unknown): AssetEntry[] {
       description: e.description as string | undefined,
       tags:        e.tags ? [...(e.tags as string[])] : undefined,
       ...(e.type === 'spritesheet' ? { cols: e.cols as number, rows: e.rows as number } : {}),
-      ...(e.bundled === true ? { bundled: true, hash: e.hash as string } : {}),
+      ...(e.bundled === true ? { bundled: true, hash: e.hash as string, size: e.size as number } : {}),
     };
   });
 }
@@ -254,6 +265,7 @@ function cloneAssetEntry(e: AssetEntry): AssetEntry {
     rows:        e.rows,
     bundled:     e.bundled,
     hash:        e.hash,
+    size:        e.size,
   };
 }
 

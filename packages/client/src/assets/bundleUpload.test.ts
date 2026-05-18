@@ -124,11 +124,11 @@ describe('entryFromUpload', () => {
   test('produces a bundled AssetEntry with empty url breadcrumb', () => {
     const entry = entryFromUpload({
       slug: 'custom:foo', name: 'Foo', type: 'image',
-      hash: 'a'.repeat(64), preload: true,
+      hash: 'a'.repeat(64), size: 1024, preload: true,
     });
     expect(entry).toEqual({
       slug: 'custom:foo', name: 'Foo', type: 'image',
-      url: '', preload: true, bundled: true, hash: 'a'.repeat(64),
+      url: '', preload: true, bundled: true, hash: 'a'.repeat(64), size: 1024,
     });
   });
 });

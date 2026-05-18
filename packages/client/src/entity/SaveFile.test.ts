@@ -293,8 +293,8 @@ describe('SaveFile zip round-trip', () => {
       scene:    [],
       thumbnail: null,
       manifest: [
-        { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash: hash1 },
-        { slug: 'custom:b', name: 'B', type: 'sound', url: '', preload: false, bundled: true, hash: hash2 },
+        { slug: 'custom:a', name: 'A', type: 'image', url: '', preload: false, bundled: true, hash: hash1, size: 3 },
+        { slug: 'custom:b', name: 'B', type: 'sound', url: '', preload: false, bundled: true, hash: hash2, size: 4 },
       ],
     });
     const zipBlob  = await encodeSaveZip(envelope, [
@@ -330,7 +330,7 @@ describe('SaveFile zip round-trip', () => {
       scene:    [],
       thumbnail: null,
       manifest: [
-        { slug: 'custom:tampered', name: 'T', type: 'image', url: '', preload: false, bundled: true, hash: claimedHash },
+        { slug: 'custom:tampered', name: 'T', type: 'image', url: '', preload: false, bundled: true, hash: claimedHash, size: 5 },
       ],
     });
     const bytes   = new Uint8Array(await (await encodeSaveZip(envelope, [

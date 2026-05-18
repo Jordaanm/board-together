@@ -177,6 +177,7 @@ describe('Manifest bundled entries', () => {
     preload: false,
     bundled: true,
     hash:    HASH,
+    size:    1024,
   };
 
   test('accepts a bundled entry with required hash', () => {
@@ -219,18 +220,20 @@ describe('Manifest bundled entries', () => {
     expect(m.get('custom:my-card')?.hash).toBeUndefined();
   });
 
-  test('update can flip bundled false → true with hash in the same call', () => {
+  test('update can flip bundled false → true with hash + size in the same call', () => {
     const m  = Manifest.empty().add(sampleImage);
-    const m2 = m.update('custom:my-card', { bundled: true, hash: HASH });
+    const m2 = m.update('custom:my-card', { bundled: true, hash: HASH, size: 42 });
     expect(m2.get('custom:my-card')?.bundled).toBe(true);
     expect(m2.get('custom:my-card')?.hash).toBe(HASH);
+    expect(m2.get('custom:my-card')?.size).toBe(42);
   });
 
-  test('update can flip bundled true → false when hash is cleared in the same call', () => {
+  test('update can flip bundled true → false when hash + size are cleared in the same call', () => {
     const m  = Manifest.empty().add(bundledImage);
-    const m2 = m.update('custom:my-png', { bundled: false, hash: undefined });
+    const m2 = m.update('custom:my-png', { bundled: false, hash: undefined, size: undefined });
     expect(m2.get('custom:my-png')?.bundled).toBe(false);
     expect(m2.get('custom:my-png')?.hash).toBeUndefined();
+    expect(m2.get('custom:my-png')?.size).toBeUndefined();
   });
 
   test('update rejects flipping bundled true → false without clearing hash', () => {
@@ -241,6 +244,23 @@ describe('Manifest bundled entries', () => {
   test('update rejects clearing hash while bundled remains true', () => {
     const m = Manifest.empty().add(bundledImage);
     expect(() => m.update('custom:my-png', { hash: undefined })).toThrow(/hash/);
+  });
+
+  test('rejects bundled === true without a size', () => {
+    expect(() =>
+      Manifest.empty().add({ ...bundledImage, size: undefined })
+    ).toThrow(/size/);
+  });
+
+  test('rejects size on non-bundled entries', () => {
+    expect(() =>
+      Manifest.empty().add({ ...sampleImage, size: 100 })
+    ).toThrow(/size/);
+  });
+
+  test('rejects negative or non-integer size', () => {
+    expect(() => Manifest.empty().add({ ...bundledImage, size: -1 })).toThrow(/size/);
+    expect(() => Manifest.empty().add({ ...bundledImage, size: 1.5 })).toThrow(/size/);
   });
 });
 

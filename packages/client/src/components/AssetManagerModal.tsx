@@ -31,6 +31,12 @@ import {
   inferAssetTypeFromFile,
   uniqueCustomSlug,
 } from '../assets/bundleUpload';
+import {
+  formatBytes,
+  useBundleSize,
+  SINGLE_ASSET_WARN_BYTES,
+  TOTAL_WARN_BYTES,
+} from '../assets/bundleSize';
 
 interface Props {
   store:         ManifestStore | null;
@@ -185,6 +191,14 @@ const FOOTER: React.CSSProperties = {
   padding:        '10px 16px',
   borderTop:      '1px solid var(--line)',
   fontSize:       12,
+};
+
+const TOTAL_WARN_BANNER: React.CSSProperties = {
+  background:   'color-mix(in oklab, var(--gold) 18%, transparent)',
+  color:        'var(--gold)',
+  borderTop:    '1px solid var(--gold)',
+  padding:      '6px 16px',
+  fontSize:     11,
 };
 
 const PUSH_BTN: React.CSSProperties = {
@@ -508,7 +522,7 @@ function CustomRow({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const hash = await bundleBlob(blob, bundleStore, bundleCache);
-      store.editDraft((d) => d.update(entry.slug, { bundled: true, hash }));
+      store.editDraft((d) => d.update(entry.slug, { bundled: true, hash, size: blob.size }));
       assetService.invalidate(entry.slug);
     } catch (e) {
       setBundleError((e as Error).message || 'Bundle failed.');
@@ -626,7 +640,7 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
 
   const convertToUrl = () => {
     try {
-      store.editDraft((d) => d.update(entry.slug, { bundled: false, hash: undefined }));
+      store.editDraft((d) => d.update(entry.slug, { bundled: false, hash: undefined, size: undefined }));
       assetService.invalidate(entry.slug);
       setShowConvertConfirm(false);
       onClose();
@@ -701,6 +715,30 @@ function EditRow({ entry, store, onClose }: { entry: AssetEntry; store: Manifest
         />
       )}
     </div>
+  );
+}
+
+function LargeFileConfirm({
+  file, onCancel, onConfirm,
+}: { file: File; onCancel: () => void; onConfirm: () => void }) {
+  const centerAnchor = useAnchorTarget('center');
+  return (
+    <Dialog.Root open onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <Dialog.Portal container={centerAnchor ?? undefined}>
+        <Dialog.Overlay style={OVERLAY} />
+        <Dialog.Content style={{ ...CONTENT, height: 'auto', width: 420, padding: 16 }} aria-describedby={undefined}>
+          <Dialog.Title style={TITLE}>Large asset</Dialog.Title>
+          <div style={{ fontSize: 12, margin: '8px 0', color: 'var(--ink-2)' }}>
+            <strong>{file.name}</strong> is <strong>{formatBytes(file.size)}</strong>. Bundling large
+            assets makes save files bigger and slows down guest joins. Continue?
+          </div>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button type="button" style={SMALL_BTN} onClick={onCancel}>Cancel</button>
+            <button type="button" style={SMALL_BTN} onClick={onConfirm}>Upload anyway</button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -798,6 +836,8 @@ function AddRow({
     }
   };
 
+  const [pendingLargeFile, setPendingLargeFile] = useState<File | null>(null);
+
   const handleUploadFile = async (file: File) => {
     if (!bundleStore || !bundleCache) return;
     setError(null);
@@ -812,7 +852,7 @@ function AddRow({
       const slug       = uniqueCustomSlug(fileStemForSlug(file.name), store.getDraft());
       const entryName  = fileStemForName(file.name) || file.name;
       store.editDraft((d) => d.add(entryFromUpload({
-        slug, name: entryName, type, hash, preload: true,
+        slug, name: entryName, type, hash, size: file.size, preload: true,
       })));
     } catch (e) {
       setError(`Upload failed: ${(e as Error).message}`);
@@ -821,10 +861,21 @@ function AddRow({
     }
   };
 
+  // Front door for any file the user picked / dropped. Files over the
+  // single-asset threshold defer through a confirm modal; everything else
+  // streams straight through handleUploadFile.
+  const acceptFile = (file: File) => {
+    if (file.size > SINGLE_ASSET_WARN_BYTES) {
+      setPendingLargeFile(file);
+      return;
+    }
+    void handleUploadFile(file);
+  };
+
   const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow picking the same file again
-    if (file) void handleUploadFile(file);
+    if (file) acceptFile(file);
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -832,7 +883,7 @@ function AddRow({
     setDragOver(false);
     if (!canUpload) return;
     const file = e.dataTransfer.files?.[0];
-    if (file) void handleUploadFile(file);
+    if (file) acceptFile(file);
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -842,48 +893,63 @@ function AddRow({
   };
   const onDragLeave = () => setDragOver(false);
 
+  const largeFileModal = pendingLargeFile && (
+    <LargeFileConfirm
+      file={pendingLargeFile}
+      onCancel={() => setPendingLargeFile(null)}
+      onConfirm={() => {
+        const f = pendingLargeFile;
+        setPendingLargeFile(null);
+        void handleUploadFile(f);
+      }}
+    />
+  );
+
   if (!staging) {
     return (
-      <div
-        style={{
-          ...ADD_BAR,
-          borderColor: dragOver ? 'var(--accent)' : 'var(--line-strong)',
-          background:  dragOver ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : undefined,
-        }}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-      >
-        <input
-          style={{ ...INPUT, flex: 1 }}
-          placeholder={canUpload ? 'Paste a URL or drop a file…' : 'Paste a URL to add an asset…'}
-          value={url}
-          onChange={(e) => { setUrl(e.target.value); setStaging(e.target.value.length > 0); }}
-        />
-        {canUpload && (
-          <>
-            <button
-              type="button"
-              style={SMALL_BTN}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadStatus !== null}
-            >
-              Upload
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,audio/*,.glb,.gltf"
-              style={{ display: 'none' }}
-              onChange={onFileInputChange}
-            />
-          </>
-        )}
-        {uploadStatus && (
-          <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{uploadStatus}</span>
-        )}
-        {error && <span style={{ ...ERROR_LINE, margin: 0 }}>{error}</span>}
-      </div>
+      <>
+        <div
+          style={{
+            ...ADD_BAR,
+            borderColor: dragOver ? 'var(--accent)' : 'var(--line-strong)',
+            background:  dragOver ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : undefined,
+          }}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
+          <input
+            style={{ ...INPUT, flex: 1 }}
+            placeholder={canUpload ? 'Paste a URL or drop a file…' : 'Paste a URL to add an asset…'}
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); setStaging(e.target.value.length > 0); }}
+          />
+          {canUpload && (
+            <>
+              <button
+                type="button"
+                style={SMALL_BTN}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadStatus !== null}
+              >
+                Upload
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,audio/*,.glb,.gltf"
+                style={{ display: 'none' }}
+                onChange={onFileInputChange}
+              />
+            </>
+          )}
+          {uploadStatus && (
+            <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{uploadStatus}</span>
+          )}
+          {error && <span style={{ ...ERROR_LINE, margin: 0 }}>{error}</span>}
+        </div>
+        {largeFileModal}
+      </>
     );
   }
 
@@ -1003,21 +1069,38 @@ function Footer({ store, onPush }: { store: ManifestStore | null; onPush: () => 
     (cb) => store?.subscribe(cb) ?? (() => {}),
     () => store?.unpushedCount() ?? 0,
   );
+  const bundleSize = useBundleSize(store);
   const disabled = count === 0;
+  const overTotal = bundleSize.bytes > TOTAL_WARN_BYTES;
   return (
-    <div style={FOOTER}>
-      <span style={{ color: count > 0 ? 'var(--gold)' : 'var(--ink-mute)' }}>
-        {count === 0 ? 'No unpushed changes.' : `${count} unpushed change${count === 1 ? '' : 's'}.`}
-      </span>
-      <button
-        type="button"
-        style={disabled ? PUSH_BTN_DISABLED : PUSH_BTN}
-        disabled={disabled}
-        onClick={onPush}
-      >
-        Push to peers
-      </button>
-    </div>
+    <>
+      {overTotal && (
+        <div style={TOTAL_WARN_BANNER}>
+          Bundled total ({formatBytes(bundleSize.bytes)}) is large. Save files
+          and guest joins will be slow.
+        </div>
+      )}
+      <div style={FOOTER}>
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ color: count > 0 ? 'var(--gold)' : 'var(--ink-mute)' }}>
+            {count === 0 ? 'No unpushed changes.' : `${count} unpushed change${count === 1 ? '' : 's'}.`}
+          </span>
+          {bundleSize.count > 0 && (
+            <span style={{ color: overTotal ? 'var(--gold)' : 'var(--ink-mute)', fontSize: 11 }}>
+              {bundleSize.count} bundled · {formatBytes(bundleSize.bytes)}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          style={disabled ? PUSH_BTN_DISABLED : PUSH_BTN}
+          disabled={disabled}
+          onClick={onPush}
+        >
+          Push to peers
+        </button>
+      </div>
+    </>
   );
 }
 

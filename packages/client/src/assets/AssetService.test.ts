@@ -695,17 +695,17 @@ const HASH = 'a'.repeat(64);
 
 const bundledImageEntry: AssetEntry = {
   slug: 'custom:bundled-img', name: 'BImg', type: 'image',
-  url:  '', preload: false, bundled: true, hash: HASH,
+  url:  '', preload: false, bundled: true, hash: HASH, size: 3,
 };
 
 const bundledModelEntry: AssetEntry = {
   slug: 'custom:bundled-mdl', name: 'BMdl', type: 'model',
-  url:  '', preload: false, bundled: true, hash: HASH,
+  url:  '', preload: false, bundled: true, hash: HASH, size: 5,
 };
 
 const bundledSoundEntry: AssetEntry = {
   slug: 'custom:bundled-snd', name: 'BSnd', type: 'sound',
-  url:  '', preload: false, bundled: true, hash: HASH,
+  url:  '', preload: false, bundled: true, hash: HASH, size: 5,
 };
 
 describe('AssetService — bundled entries via BundleStore', () => {

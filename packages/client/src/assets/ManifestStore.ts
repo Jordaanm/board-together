@@ -96,7 +96,8 @@ function entriesEqual(a: AssetEntry, b: AssetEntry): boolean {
       && (a.description ?? '')      === (b.description ?? '')
       && tagsEqual(a.tags, b.tags)
       && (a.bundled ?? false)       === (b.bundled ?? false)
-      && (a.hash    ?? '')          === (b.hash    ?? '');
+      && (a.hash    ?? '')          === (b.hash    ?? '')
+      && (a.size    ?? -1)          === (b.size    ?? -1);
 }
 
 function tagsEqual(a?: string[], b?: string[]): boolean {

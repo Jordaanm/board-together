@@ -101,6 +101,7 @@ export function entryFromUpload(args: {
   name:    string;
   type:    AssetType;
   hash:    string;
+  size:    number;
   preload: boolean;
 }): AssetEntry {
   return {
@@ -111,5 +112,6 @@ export function entryFromUpload(args: {
     preload: args.preload,
     bundled: true,
     hash:    args.hash,
+    size:    args.size,
   };
 }
