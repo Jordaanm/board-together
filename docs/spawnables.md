@@ -18,7 +18,7 @@ Default appearance: 4 m × 0.05 m × 3 m, mossy green (`#2d5a27`), single `prim:
 
 - Transform: position, rotation, scale.
 - Mesh: `meshRef`, `color`, `width` / `height` / `depth`, `textureRefs.default`.
-- Physics: `mass`, `friction`, `restitution`, `isLocked` (locking pins it in place and ignores collisions).
+- Physics: `mass`, `friction`, `restitution`, `isLocked` (locking pins it in place and ignores collisions), `yawOnly` (when true, the body may only rotate about world +Y — defaults to `true` for board, deck, and card).
 
 **Context-menu actions:** standard mesh actions (rotate, lock, delete, add surface). No board-specific behaviour beyond what mesh + physics already give you.
 

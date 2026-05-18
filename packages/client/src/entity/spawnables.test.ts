@@ -222,7 +222,7 @@ describe('spawnables — serialised snapshot shape', () => {
     expect(snap.children).toEqual([]);
     expect(Object.keys(snap.components).sort()).toEqual(['dice', 'mesh', 'physics', 'transform', 'tween', 'value']);
     expect(snap.components.value).toEqual({ value: '6', isNumeric: true });
-    expect(snap.components.physics).toEqual({ mass: 0.2, friction: 0.5, restitution: 0.5, isLocked: false });
+    expect(snap.components.physics).toEqual({ mass: 0.2, friction: 0.5, restitution: 0.5, isLocked: false, yawOnly: false });
     expect(snap.components.mesh).toMatchObject({ meshRef: 'prim:d6', width: 0.7, height: 0.7, depth: 0.7 });
     expect(snap.components.dice).toEqual({ maxValue: 6, faceMap: D6_FACE_MAP });
   });

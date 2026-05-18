@@ -51,7 +51,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:table-rect', textureRefs: { default: 'base:table/default' }, color: '#ffffff', width: 12, height: 0.3, depth: 8 } },
-      { typeId: 'physics',   state: { mass: 0, friction: 0.5, restitution: 0.3, isLocked: true } },
+      { typeId: 'physics',   state: { mass: 0, friction: 0.5, restitution: 0.3, isLocked: true, yawOnly: false } },
       { typeId: 'table',     state: {} },
       { typeId: 'skydome',   state: { textureUrl: 'base:sky/default' } },
       { typeId: 'lighting',  state: { color: '#fff1dc', intensity: 1.1 } },
@@ -66,7 +66,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:cube', textureRefs: { default: '' }, color: '#2d5a27', width: 4, height: 0.05, depth: 3 } },
-      { typeId: 'physics',   state: { mass: 0.5, friction: 0.5, restitution: 0.3, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.5, friction: 0.5, restitution: 0.3, isLocked: false, yawOnly: true } },
       { typeId: 'tween',     state: {} },
     ],
   });
@@ -79,7 +79,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:d6', textureRefs: { default: '' }, color: '#fafafa', width: 0.7, height: 0.7, depth: 0.7 } },
-      { typeId: 'physics',   state: { mass: 0.2, friction: 0.5, restitution: 0.5, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.2, friction: 0.5, restitution: 0.5, isLocked: false, yawOnly: false } },
       { typeId: 'value',     state: { value: '6', isNumeric: true } },
       { typeId: 'dice',      state: { maxValue: 6, faceMap: D6_FACE_MAP } },
       { typeId: 'tween',     state: {} },
@@ -94,7 +94,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:d20', textureRefs: { default: '' }, color: '#fafafa', width: 1.4, height: 1.4, depth: 1.4 } },
-      { typeId: 'physics',   state: { mass: 0.25, friction: 0.5, restitution: 0.5, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.25, friction: 0.5, restitution: 0.5, isLocked: false, yawOnly: false } },
       { typeId: 'value',     state: { value: '20', isNumeric: true } },
       { typeId: 'dice',      state: { maxValue: 20, faceMap: D20_FACE_MAP } },
       { typeId: 'tween',     state: {} },
@@ -109,7 +109,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:disc', textureRefs: { default: '' }, color: '#cc6622', width: 0.32, height: 0.05, depth: 0.32 } },
-      { typeId: 'physics',   state: { mass: 0.1, friction: 0.5, restitution: 0.3, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.1, friction: 0.5, restitution: 0.3, isLocked: false, yawOnly: false } },
       { typeId: 'tween',     state: {} },
     ],
   });
@@ -122,7 +122,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:meeple', textureRefs: { default: '' }, color: '#2266cc', width: 0.5, height: 0.75, depth: 0.5 } },
-      { typeId: 'physics',   state: { mass: 0.1, friction: 0.5, restitution: 0.3, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.1, friction: 0.5, restitution: 0.3, isLocked: false, yawOnly: false } },
       { typeId: 'tween',     state: {} },
     ],
   });
@@ -136,7 +136,7 @@ export function registerCorePrimitives(): void {
       { typeId: 'value',     state: { value: '', isNumeric: false } },
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:card', textureRefs: { face: '', back: '' }, color: '#fafafa', width: 0.63, height: 0.01, depth: 0.88 } },
-      { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false, yawOnly: true } },
       { typeId: 'flatview',  state: { textureRef: '' } },
       { typeId: 'card',      state: { face: '', back: '', category: '' } },
       { typeId: 'tween',     state: {} },
@@ -152,7 +152,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'prim:deck', textureRefs: { face: '', back: '' }, color: '#fafafa', width: 0.63, height: 0.02, depth: 0.88 } },
-      { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false } },
+      { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false, yawOnly: true } },
       { typeId: 'tween',     state: {} },
       { typeId: 'deck',      state: { cards: [], category: '' } },
     ],

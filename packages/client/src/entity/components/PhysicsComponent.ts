@@ -23,6 +23,13 @@ export interface PhysicsState {
   friction:    number;
   restitution: number;
   isLocked:    boolean;
+  // When true, cannon's angularFactor is set to (0,1,0) so the body may
+  // only rotate about world +Y — pitch and roll are zeroed every integrate
+  // step. Used by flat playing pieces (board / deck / card) so they stay
+  // aligned with the table no matter what hits them. Tween-driven actions
+  // (Flip) bypass integration by writing the body quaternion directly, so
+  // they remain unaffected.
+  yawOnly:     boolean;
 }
 
 export interface Vec3Like { x: number; y: number; z: number }
@@ -58,6 +65,8 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
     const [qx, qy, qz, qw] = transform.state.rotation;
     this.body.position.set(px, py, pz);
     this.body.quaternion.set(qx, qy, qz, qw);
+
+    this.applyYawOnly(this.state.yawOnly);
 
     this.collideHandler = (e) => this.handleCollide(e.body);
     this.body.addEventListener('collide', this.collideHandler);
@@ -112,6 +121,20 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
     if (changed.friction    !== undefined && this.body.material)    this.body.material.friction    = changed.friction;
     if (changed.restitution !== undefined && this.body.material)    this.body.material.restitution = changed.restitution;
     if (changed.isLocked    !== undefined) this.applyLockChange(changed.isLocked);
+    if (changed.yawOnly     !== undefined) this.applyYawOnly(changed.yawOnly);
+  }
+
+  private applyYawOnly(yawOnly: boolean): void {
+    if (!this.body) return;
+    if (yawOnly) {
+      this.body.angularFactor.set(0, 1, 0);
+      // Zero stale pitch/roll velocity so the toggle takes effect immediately
+      // instead of waiting for the next integrate step to clamp it.
+      this.body.angularVelocity.x = 0;
+      this.body.angularVelocity.z = 0;
+    } else {
+      this.body.angularFactor.set(1, 1, 1);
+    }
   }
 
   private applyLockChange(locked: boolean): void {

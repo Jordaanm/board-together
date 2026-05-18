@@ -299,6 +299,52 @@ describe('PhysicsComponent — Table hitbox aligns with the visible top surface'
   });
 });
 
+describe('PhysicsComponent — yawOnly state drives angularFactor', () => {
+  test('board / deck / card default to yawOnly=true with angularFactor (0,1,0)', () => {
+    for (const type of ['board', 'deck', 'card']) {
+      const e = scene.spawn(type, ctx);
+      const phys = e.getComponent(PhysicsComponent)!;
+      expect(phys.state.yawOnly).toBe(true);
+      expect(phys.body.angularFactor.x).toBe(0);
+      expect(phys.body.angularFactor.y).toBe(1);
+      expect(phys.body.angularFactor.z).toBe(0);
+    }
+  });
+
+  test('die / token / disc default to yawOnly=false with angularFactor (1,1,1)', () => {
+    for (const type of ['die', 'token', 'disc']) {
+      const e = scene.spawn(type, ctx);
+      const phys = e.getComponent(PhysicsComponent)!;
+      expect(phys.state.yawOnly).toBe(false);
+      expect(phys.body.angularFactor.x).toBe(1);
+      expect(phys.body.angularFactor.y).toBe(1);
+      expect(phys.body.angularFactor.z).toBe(1);
+    }
+  });
+
+  test('setState({yawOnly:false}) on a card releases the angular lock', () => {
+    const e = scene.spawn('card', ctx);
+    const phys = e.getComponent(PhysicsComponent)!;
+    phys.setState({ yawOnly: false });
+    expect(phys.body.angularFactor.x).toBe(1);
+    expect(phys.body.angularFactor.y).toBe(1);
+    expect(phys.body.angularFactor.z).toBe(1);
+  });
+
+  test('setState({yawOnly:true}) on a die engages the lock and zeroes stale pitch/roll velocity', () => {
+    const e = scene.spawn('die', ctx);
+    const phys = e.getComponent(PhysicsComponent)!;
+    phys.body.angularVelocity.set(2, 3, 4);
+    phys.setState({ yawOnly: true });
+    expect(phys.body.angularFactor.x).toBe(0);
+    expect(phys.body.angularFactor.y).toBe(1);
+    expect(phys.body.angularFactor.z).toBe(0);
+    expect(phys.body.angularVelocity.x).toBe(0);
+    expect(phys.body.angularVelocity.y).toBe(3);
+    expect(phys.body.angularVelocity.z).toBe(0);
+  });
+});
+
 // Covers the host code path: dispatchMenuAction short-circuits into
 // comp.onAction when isHost=true. canManipulate({isHost:true}, *) is always
 // true so the host may toggle any entity regardless of ownership.

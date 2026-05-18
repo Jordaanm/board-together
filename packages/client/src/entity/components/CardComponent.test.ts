@@ -71,7 +71,7 @@ describe('CardComponent — initial FlatView from orientation', () => {
       components: {
         transform: { position: [0, 0, 0], rotation: flippedQuat, scale: [1, 1, 1] },
         mesh:      { meshRef: 'prim:card', textureRefs: { face: '', back: '' }, color: '#fafafa', width: 0.63, height: 0.01, depth: 0.88 },
-        physics:   { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false },
+        physics:   { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false, yawOnly: true },
         value:     { value: '', isNumeric: false },
         flatview:  { textureRef: '' },
         tween:     {},

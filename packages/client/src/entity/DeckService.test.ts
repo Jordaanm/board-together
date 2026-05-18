@@ -165,7 +165,12 @@ describe('DeckService.peelTop', () => {
     const result = decks.peelTop(deck.id, 0)!;
     expect(result).not.toBeNull();
     expect(result.cardId).toBe(topId);
-    expect(result.pos).toEqual([1, 2, 3]);
+    // Peeled card surfaces above the deck rather than at its centre so the
+    // re-added body doesn't punt the deck off the table. 3-card deck = 0.06
+    // tall (half = 0.03), card height 0.01 (half = 0.005), plus 0.005 gap.
+    expect(result.pos[0]).toBeCloseTo(1, 6);
+    expect(result.pos[1]).toBeCloseTo(2 + 0.03 + 0.005 + 0.005, 6);
+    expect(result.pos[2]).toBeCloseTo(3, 6);
     expect(result.rot).toEqual([0, 0, 0, 1]);
 
     const card = scene.getEntity(topId)!;

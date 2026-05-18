@@ -252,16 +252,29 @@ export class DeckService {
 
     const deckTransform = deck.getComponent(TransformComponent);
     if (!deckTransform) return null;
-    const pos: [number, number, number] = [
-      deckTransform.state.position[0],
-      deckTransform.state.position[1],
-      deckTransform.state.position[2],
-    ];
     const rot: [number, number, number, number] = [
       deckTransform.state.rotation[0],
       deckTransform.state.rotation[1],
       deckTransform.state.rotation[2],
       deckTransform.state.rotation[3],
+    ];
+
+    // Surface the peeled card just above the deck top, in the deck's local
+    // +Y direction. Without this lift the card body re-enters the world
+    // co-located with the deck body; the kinematic-hold that follows then
+    // resolves the overlap by punting the deck across the table.
+    const deckMesh  = deck.getComponent(MeshComponent);
+    const cardMesh  = card.getComponent(MeshComponent);
+    const deckHalfH = (deckMesh?.state.height ?? 0) * 0.5;
+    const cardHalfH = (cardMesh?.state.height ?? 0) * 0.5;
+    const LIFT_GAP  = 0.005;
+    const lift      = deckHalfH + cardHalfH + LIFT_GAP;
+    const upWorld   = new THREE.Vector3(0, 1, 0)
+      .applyQuaternion(new THREE.Quaternion(rot[0], rot[1], rot[2], rot[3]));
+    const pos: [number, number, number] = [
+      deckTransform.state.position[0] + upWorld.x * lift,
+      deckTransform.state.position[1] + upWorld.y * lift,
+      deckTransform.state.position[2] + upWorld.z * lift,
     ];
 
     // Pop first so a concurrent guest call doesn't see the same top card.
