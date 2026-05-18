@@ -166,6 +166,84 @@ describe('Manifest.list / get', () => {
   });
 });
 
+describe('Manifest bundled entries', () => {
+  const HASH = 'a'.repeat(64);
+
+  const bundledImage: AssetEntry = {
+    slug:    'custom:my-png',
+    name:    'My PNG',
+    type:    'image',
+    url:     '',
+    preload: false,
+    bundled: true,
+    hash:    HASH,
+  };
+
+  test('accepts a bundled entry with required hash', () => {
+    const m = Manifest.empty().add(bundledImage);
+    const got = m.get('custom:my-png')!;
+    expect(got.bundled).toBe(true);
+    expect(got.hash).toBe(HASH);
+  });
+
+  test('rejects bundled === true without a hash', () => {
+    expect(() =>
+      Manifest.empty().add({ ...bundledImage, hash: undefined })
+    ).toThrow(/hash/);
+  });
+
+  test('rejects malformed hash (wrong length / uppercase / non-hex)', () => {
+    expect(() => Manifest.empty().add({ ...bundledImage, hash: 'abc' })).toThrow(/hash/);
+    expect(() => Manifest.empty().add({ ...bundledImage, hash: 'A'.repeat(64) })).toThrow(/hash/);
+    expect(() => Manifest.empty().add({ ...bundledImage, hash: 'g'.repeat(64) })).toThrow(/hash/);
+  });
+
+  test('rejects bundled === true on non-custom namespace', () => {
+    expect(() =>
+      Manifest.empty().add({ ...bundledImage, slug: 'base:my-png' })
+    ).toThrow(/custom/);
+    expect(() =>
+      Manifest.empty().add({ ...bundledImage, slug: 'prim:my-png' })
+    ).toThrow(/custom/);
+  });
+
+  test('rejects hash on non-bundled entries', () => {
+    expect(() =>
+      Manifest.empty().add({ ...sampleImage, hash: HASH })
+    ).toThrow(/bundled/);
+  });
+
+  test('pre-feature entries (neither bundled nor hash) still validate', () => {
+    const m = Manifest.empty().add(sampleImage);
+    expect(m.get('custom:my-card')?.bundled).toBeUndefined();
+    expect(m.get('custom:my-card')?.hash).toBeUndefined();
+  });
+
+  test('update can flip bundled false → true with hash in the same call', () => {
+    const m  = Manifest.empty().add(sampleImage);
+    const m2 = m.update('custom:my-card', { bundled: true, hash: HASH });
+    expect(m2.get('custom:my-card')?.bundled).toBe(true);
+    expect(m2.get('custom:my-card')?.hash).toBe(HASH);
+  });
+
+  test('update can flip bundled true → false when hash is cleared in the same call', () => {
+    const m  = Manifest.empty().add(bundledImage);
+    const m2 = m.update('custom:my-png', { bundled: false, hash: undefined });
+    expect(m2.get('custom:my-png')?.bundled).toBe(false);
+    expect(m2.get('custom:my-png')?.hash).toBeUndefined();
+  });
+
+  test('update rejects flipping bundled true → false without clearing hash', () => {
+    const m = Manifest.empty().add(bundledImage);
+    expect(() => m.update('custom:my-png', { bundled: false })).toThrow(/bundled/);
+  });
+
+  test('update rejects clearing hash while bundled remains true', () => {
+    const m = Manifest.empty().add(bundledImage);
+    expect(() => m.update('custom:my-png', { hash: undefined })).toThrow(/hash/);
+  });
+});
+
 describe('Manifest spritesheet entries', () => {
   const sheet: AssetEntry = {
     slug: 'custom:deck', name: 'Deck', type: 'spritesheet',

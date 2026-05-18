@@ -24,6 +24,11 @@ export interface AssetEntry {
   // the grid without a re-import flow.
   cols?:        number;
   rows?:        number;
+  // Bundled-asset fields (custom: namespace only). When `bundled === true`,
+  // bytes are content-addressed in the BundleStore by `hash` (lowercase
+  // SHA-256 hex); `url` is preserved as an optional breadcrumb only.
+  bundled?:     boolean;
+  hash?:        string;
 }
 
 export class ManifestError extends Error {}
@@ -63,6 +68,7 @@ export function isSlug(ref: string): boolean {
 }
 
 const ASSET_TYPES = new Set<AssetType>(['image', 'model', 'sound', 'spritesheet']);
+const HASH_RE     = /^[a-f0-9]{64}$/;
 
 function isPositiveInt(n: unknown): n is number {
   return typeof n === 'number' && Number.isInteger(n) && n >= 1;
@@ -106,6 +112,25 @@ function validateEntry(entry: AssetEntry): void {
     if (entry.rows !== undefined) {
       throw new ManifestError(`entry "${entry.slug}": rows is only valid on spritesheet entries`);
     }
+  }
+  if (entry.bundled !== undefined && typeof entry.bundled !== 'boolean') {
+    throw new ManifestError(`entry "${entry.slug}": bundled must be a boolean`);
+  }
+  if (entry.hash !== undefined && typeof entry.hash !== 'string') {
+    throw new ManifestError(`entry "${entry.slug}": hash must be a string`);
+  }
+  if (entry.bundled === true) {
+    if (namespaceOf(entry.slug) !== 'custom') {
+      throw new ManifestError(`entry "${entry.slug}": bundled entries must use the "custom" namespace`);
+    }
+    if (typeof entry.hash !== 'string') {
+      throw new ManifestError(`entry "${entry.slug}": bundled entries require a hash`);
+    }
+    if (!HASH_RE.test(entry.hash)) {
+      throw new ManifestError(`entry "${entry.slug}": hash must be 64 lowercase hex chars`);
+    }
+  } else if (entry.hash !== undefined) {
+    throw new ManifestError(`entry "${entry.slug}": hash is only valid on bundled entries`);
   }
 }
 

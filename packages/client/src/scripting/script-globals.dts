@@ -21,6 +21,8 @@ interface AssetEntry {
     readonly tags?: readonly string[];
     readonly cols?: number;
     readonly rows?: number;
+    readonly bundled?: boolean;
+    readonly hash?: string;
 }
 
 declare class AssetsApi {
