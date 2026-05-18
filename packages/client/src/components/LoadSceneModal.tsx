@@ -8,7 +8,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { decodeSaveFile, SaveFileError, type SaveEnvelope } from '../entity/SaveFile';
+import {
+  decodeSaveFile,
+  decodeSaveZip,
+  looksLikeSaveZip,
+  SaveFileError,
+  type SaveEnvelope,
+} from '../entity/SaveFile';
 import { useAnchorTarget } from './AnchorLayout';
 
 interface Props {
@@ -154,15 +160,21 @@ export function LoadSceneModal({ currentEntityCount, onConfirmLoad, triggerRef, 
     const file = e.target.files?.[0];
     e.target.value = '';  // allow picking the same file again later
     if (!file) return;
-    let text: string;
+    let bytes: Uint8Array;
     try {
-      text = await file.text();
+      bytes = new Uint8Array(await file.arrayBuffer());
     } catch {
       setError('Could not read file.');
       return;
     }
     try {
-      const envelope = decodeSaveFile(text);
+      // Magic-byte sniff: zip → v2, JSON → v1 path.
+      // Bundle blobs from the zip are decoded here but #8 wires them into
+      // BundleStore / BundleCache; for now they're discarded so the scene
+      // loads at parity with the JSON path.
+      const envelope = looksLikeSaveZip(bytes)
+        ? (await decodeSaveZip(bytes)).envelope
+        : decodeSaveFile(new TextDecoder().decode(bytes));
       setPreview({ envelope, filename: file.name });
     } catch (err) {
       setError(err instanceof SaveFileError ? err.message : 'Failed to parse save file.');
@@ -188,7 +200,7 @@ export function LoadSceneModal({ currentEntityCount, onConfirmLoad, triggerRef, 
       <input
         ref={inputRef}
         type="file"
-        accept=".json,application/json"
+        accept=".boardtogether,.json,application/json,application/zip"
         style={{ display: 'none' }}
         onChange={onFileChange}
       />

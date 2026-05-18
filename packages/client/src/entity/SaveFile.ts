@@ -20,9 +20,13 @@ import { componentRegistry } from './ComponentRegistry';
 import { type AssetEntry, type AssetType, validateSlug } from '../assets/Manifest';
 import { initialTurnState, type TurnState } from '../seats/TurnTracker';
 import { type SeatIndex } from '../seats/SeatLayout';
+import { encodeZip, decodeZip, looksLikeZip } from './saveZip';
 
-export const SAVE_FORMAT  = 'vtt-scene';
-export const SAVE_VERSION = 1;
+export const SAVE_FORMAT             = 'vtt-scene';
+export const SAVE_VERSION            = 2;
+// Versions accepted on read. v1 is the pre-bundled-assets JSON-only format;
+// v2 is the always-zip envelope. Both decode to the same SaveEnvelope shape.
+export const SUPPORTED_SAVE_VERSIONS = [1, 2] as const;
 
 const ASSET_TYPES: ReadonlySet<AssetType> = new Set(['image', 'model', 'sound', 'spritesheet']);
 
@@ -33,9 +37,11 @@ export interface SavedScript {
 
 export const EMPTY_SCRIPT: SavedScript = { source: '', initialised: false };
 
+export type SaveVersion = (typeof SUPPORTED_SAVE_VERSIONS)[number];
+
 export interface SaveEnvelope {
   format:    typeof SAVE_FORMAT;
-  version:   typeof SAVE_VERSION;
+  version:   SaveVersion;
   savedAt:   string;
   thumbnail: string | null;
   scene:     EntitySerialized[];
@@ -89,9 +95,10 @@ export function decodeSaveFile(text: string): SaveEnvelope {
   if (obj.format !== SAVE_FORMAT) {
     throw new SaveFileError(`Unknown save format: ${JSON.stringify(obj.format)}`);
   }
-  if (obj.version !== SAVE_VERSION) {
+  if (!SUPPORTED_SAVE_VERSIONS.includes(obj.version as SaveVersion)) {
     throw new SaveFileError(`Unsupported save version: ${JSON.stringify(obj.version)}`);
   }
+  const version = obj.version as SaveVersion;
   if (!Array.isArray(obj.scene)) {
     throw new SaveFileError('Save file is missing required field "scene".');
   }
@@ -109,7 +116,7 @@ export function decodeSaveFile(text: string): SaveEnvelope {
 
   return {
     format:    SAVE_FORMAT,
-    version:   SAVE_VERSION,
+    version,
     savedAt,
     thumbnail,
     scene,
@@ -269,24 +276,63 @@ function validateEntitySerialized(raw: unknown, index: number): EntitySerialized
   return e as unknown as EntitySerialized;
 }
 
-// Browser-only download helper: serialise the envelope and trigger an anchor
-// click against a Blob URL. Default filename is `vtt-scene-<ISO date>.json`.
-// Wrapped in an exported helper so non-browser tests can construct the
-// envelope without invoking DOM APIs.
-export function downloadSaveFile(envelope: SaveEnvelope, filename?: string): void {
-  const json = JSON.stringify(envelope);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+// One bundled-asset blob written into / read out of a v2 save zip. The
+// `hash` is the SHA-256 hex string used as the filename inside `assets/`.
+export interface SaveZipBundle {
+  hash: string;
+  blob: Blob;
+}
+
+// Encode a v2 save: STORED zip with `scene.json` (the envelope) plus one
+// `assets/<hash>` entry per bundle. Returns the on-disk Blob ready for
+// download. With an empty `bundles` array the zip is ~200 bytes — just the
+// envelope plus zip headers.
+export async function encodeSaveZip(
+  envelope: SaveEnvelope,
+  bundles:  ReadonlyArray<SaveZipBundle>,
+): Promise<Blob> {
+  const envelopeBytes = new TextEncoder().encode(JSON.stringify(envelope));
+  const blobBytes     = await Promise.all(
+    bundles.map(async (b) => ({ name: b.hash, bytes: new Uint8Array(await b.blob.arrayBuffer()) })),
+  );
+  const zip = await encodeZip(envelopeBytes, blobBytes);
+  return new Blob([zip], { type: 'application/zip' });
+}
+
+// Decode a v2 save zip. Validates the envelope via decodeSaveFile and
+// preserves the raw blobs for the caller to pump into BundleStore (#8).
+export async function decodeSaveZip(bytes: Uint8Array): Promise<{
+  envelope: SaveEnvelope;
+  blobs:    SaveZipBundle[];
+}> {
+  const { envelopeBytes, blobs } = await decodeZip(bytes);
+  const text     = new TextDecoder().decode(envelopeBytes);
+  const envelope = decodeSaveFile(text);
+  return {
+    envelope,
+    blobs: blobs.map(b => ({ hash: b.name, blob: new Blob([b.bytes]) })),
+  };
+}
+
+// Re-export so callers can sniff bytes without importing from saveZip.
+export { looksLikeZip as looksLikeSaveZip };
+
+// Browser-only download helper: trigger an anchor click against a Blob URL.
+export function downloadSaveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
   a.href     = url;
-  a.download = filename ?? defaultSaveFilename(envelope.savedAt);
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
 }
 
-export function defaultSaveFilename(isoTimestamp: string): string {
+// Default filename uses `.boardtogether` (the v2 zip format) unless the
+// caller asks for a different extension (used by tests that exercise the
+// legacy JSON v1 read path).
+export function defaultSaveFilename(isoTimestamp: string, ext: 'boardtogether' | 'json' = 'boardtogether'): string {
   const dateOnly = isoTimestamp.slice(0, 10);  // YYYY-MM-DD
-  return `vtt-scene-${dateOnly || 'unknown'}.json`;
+  return `vtt-scene-${dateOnly || 'unknown'}.${ext}`;
 }

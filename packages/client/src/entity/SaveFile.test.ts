@@ -4,6 +4,9 @@ import {
   SAVE_VERSION,
   encodeSaveFile,
   decodeSaveFile,
+  encodeSaveZip,
+  decodeSaveZip,
+  looksLikeSaveZip,
   defaultSaveFilename,
   SaveFileError,
 } from './SaveFile';
@@ -251,11 +254,94 @@ describe('SaveFile.decode validation', () => {
 });
 
 describe('defaultSaveFilename', () => {
-  test('uses ISO date prefix', () => {
-    expect(defaultSaveFilename('2026-05-06T12:00:00.000Z')).toBe('vtt-scene-2026-05-06.json');
+  test('defaults to the .boardtogether v2 extension', () => {
+    expect(defaultSaveFilename('2026-05-06T12:00:00.000Z')).toBe('vtt-scene-2026-05-06.boardtogether');
+  });
+
+  test('accepts a legacy .json extension override', () => {
+    expect(defaultSaveFilename('2026-05-06T12:00:00.000Z', 'json')).toBe('vtt-scene-2026-05-06.json');
   });
 
   test('falls back when timestamp is empty', () => {
-    expect(defaultSaveFilename('')).toBe('vtt-scene-unknown.json');
+    expect(defaultSaveFilename('')).toBe('vtt-scene-unknown.boardtogether');
+  });
+});
+
+describe('SaveFile zip round-trip', () => {
+  test('encode → decode preserves the envelope and zero-bundle blobs', async () => {
+    const envelope = encodeSaveFile({
+      scene:     [],
+      thumbnail: null,
+      savedAt:   '2026-05-06T12:00:00.000Z',
+    });
+    const blob   = await encodeSaveZip(envelope, []);
+    const bytes  = new Uint8Array(await blob.arrayBuffer());
+    expect(looksLikeSaveZip(bytes)).toBe(true);
+    const decoded = await decodeSaveZip(bytes);
+    expect(decoded.envelope.scene).toEqual([]);
+    expect(decoded.envelope.version).toBe(SAVE_VERSION);
+    expect(decoded.blobs).toEqual([]);
+  });
+
+  test('encode → decode preserves bundled blobs by hash', async () => {
+    const envelope = encodeSaveFile({ scene: [], thumbnail: null });
+    const blob1    = new Blob([new Uint8Array([1, 2, 3])]);
+    const blob2    = new Blob([new Uint8Array([4, 5, 6, 7])]);
+    const zipBlob  = await encodeSaveZip(envelope, [
+      { hash: 'a'.repeat(64), blob: blob1 },
+      { hash: 'b'.repeat(64), blob: blob2 },
+    ]);
+    const bytes   = new Uint8Array(await zipBlob.arrayBuffer());
+    const decoded = await decodeSaveZip(bytes);
+    expect(decoded.blobs.length).toBe(2);
+    const byHash = new Map(decoded.blobs.map(b => [b.hash, b.blob]));
+    expect(Array.from(new Uint8Array(await byHash.get('a'.repeat(64))!.arrayBuffer())))
+      .toEqual([1, 2, 3]);
+    expect(Array.from(new Uint8Array(await byHash.get('b'.repeat(64))!.arrayBuffer())))
+      .toEqual([4, 5, 6, 7]);
+  });
+
+  test('decodeSaveZip rejects an envelope with unknown component typeId', async () => {
+    // Build a v2 envelope by hand with a bad component. encodeSaveFile would
+    // accept anything (it doesn't validate), so we synth the zip directly.
+    const bad: EntitySerialized = {
+      id: 'x-1', type: 'x', name: 'X', tags: [], owner: null,
+      privateToSeat: null, parentId: null, children: [],
+      components: { unknownComponent: {} },
+    };
+    const envelope = encodeSaveFile({ scene: [bad], thumbnail: null });
+    const blob = await encodeSaveZip(envelope, []);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    await expect(decodeSaveZip(bytes)).rejects.toThrow(/unknown component/i);
+  });
+});
+
+describe('decodeSaveFile accepts both v1 and v2 versions', () => {
+  test('v1 envelope decodes (pre-zip JSON saves still load)', () => {
+    const text    = JSON.stringify({ format: SAVE_FORMAT, version: 1, scene: [] });
+    const decoded = decodeSaveFile(text);
+    expect(decoded.version).toBe(1);
+    expect(decoded.scene).toEqual([]);
+  });
+
+  test('v2 envelope decodes', () => {
+    const text    = JSON.stringify({ format: SAVE_FORMAT, version: 2, scene: [] });
+    const decoded = decodeSaveFile(text);
+    expect(decoded.version).toBe(2);
+  });
+});
+
+describe('looksLikeSaveZip', () => {
+  test('returns true for a zipped envelope', async () => {
+    const env  = encodeSaveFile({ scene: [], thumbnail: null });
+    const zip  = await encodeSaveZip(env, []);
+    const u8   = new Uint8Array(await zip.arrayBuffer());
+    expect(looksLikeSaveZip(u8)).toBe(true);
+  });
+
+  test('returns false for raw JSON envelope bytes', () => {
+    const env  = encodeSaveFile({ scene: [], thumbnail: null });
+    const u8   = new TextEncoder().encode(JSON.stringify(env));
+    expect(looksLikeSaveZip(u8)).toBe(false);
   });
 });
