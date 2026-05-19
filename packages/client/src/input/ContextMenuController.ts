@@ -136,9 +136,9 @@ export interface MenuActionDeps {
   hostLocal: {
     delete:        (entityId: string) => void;
     drawFromDeck?: (deckId: string, count: number, callerSeat: SeatIndex | null) => void;
-    shuffleDeck?:  (deckId: string) => void;
+    shuffleDeck?:  (deckId: string, callerSeat: SeatIndex | null) => void;
     dealFromDeck?: (deckId: string, count: number, callerSeat: SeatIndex | null) => void;
-    spreadDeck?:   (deckId: string) => void;
+    spreadDeck?:   (deckId: string, callerSeat: SeatIndex | null) => void;
   };
   selfSeat:      SeatIndex | null;
 }
@@ -170,7 +170,7 @@ export function dispatchMenuAction(
   // Deck shuffle — issue #7 of issues--deck.md.
   if (item.kind === 'action' && item.id === 'shuffle' && item.componentTypeId === 'deck') {
     if (deps.isHost) {
-      deps.hostLocal.shuffleDeck?.(entityId);
+      deps.hostLocal.shuffleDeck?.(entityId, deps.selfSeat);
     } else {
       deps.send({ type: 'shuffle-deck', deckId: entityId });
     }
@@ -192,7 +192,7 @@ export function dispatchMenuAction(
   // the deck.
   if (item.kind === 'action' && item.id === 'spread' && item.componentTypeId === 'deck') {
     if (deps.isHost) {
-      deps.hostLocal.spreadDeck?.(entityId);
+      deps.hostLocal.spreadDeck?.(entityId, deps.selfSeat);
     } else {
       deps.send({ type: 'spread-deck', deckId: entityId });
     }

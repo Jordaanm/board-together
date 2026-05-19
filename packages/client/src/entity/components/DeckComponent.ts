@@ -14,6 +14,7 @@ import {
   type ActionContext,
   type GrabIntent,
 } from '../EntityComponent';
+import { type SeatIndex } from '../../seats/SeatLayout';
 import { MeshComponent } from './MeshComponent';
 import { PhysicsComponent } from './PhysicsComponent';
 import { CardComponent } from './CardComponent';
@@ -22,6 +23,11 @@ import { HandComponent } from './HandComponent';
 export interface DeckState {
   cards:    string[];
   category: string;
+  // Transient inspect-lock (planning/issues--deck-inspect.md). Non-null while
+  // a peer holds the Inspect dialog open; gates draw / shuffle / deal /
+  // spread / peel / merge for every other seat. Stripped at save time alongside
+  // `Entity.heldBy`.
+  searchLockedBy: SeatIndex | null;
 }
 
 // Per-card slab thickness used to grow the deck height. Twice the card
@@ -39,6 +45,23 @@ export class DeckComponent extends EntityComponent<DeckState> {
     this.applyCardsToSiblings();
   }
 
+  // Strip the transient `searchLockedBy` slot on serialisation so save files
+  // never carry a stale lock back across a load. Mirrors the way
+  // `Entity.heldBy` is omitted from `entityToSerialized`.
+  toJSON(): object {
+    const { cards, category } = this.state;
+    return { cards: [...cards], category };
+  }
+
+  fromJSON(o: object): void {
+    const raw = o as Partial<DeckState>;
+    this.state = {
+      cards:          raw.cards ? [...raw.cards] : [],
+      category:       raw.category ?? '',
+      searchLockedBy: null,
+    };
+  }
+
   onPropertiesChanged(changed: Partial<DeckState>): void {
     if (changed.cards !== undefined) {
       this.applyCardsToSiblings();
@@ -47,8 +70,13 @@ export class DeckComponent extends EntityComponent<DeckState> {
 
   // Short-press-and-drag on a deck peels the top card; long-press carries the
   // whole deck. Empty deck falls through to whole-deck grab so the gesture is
-  // never a dead-end. Issue #2 of issues--deck-peel.md.
+  // never a dead-end. Issue #2 of issues--deck-peel.md. While the deck is
+  // search-locked by another seat, both gestures are refused.
   onTryGrab(isLongPress: boolean): GrabIntent | null {
+    // Locked decks are not grabbable by anyone but the lock holder. The grab
+    // gesture has no seat context at this layer, so we conservatively refuse
+    // whenever a lock is set; the lock holder uses the dialog instead.
+    if (this.state.searchLockedBy !== null) return null;
     if (isLongPress)                    return null;
     if (this.state.cards.length === 0)  return null;
     return { kind: 'peel', sourceId: this.entity.id };

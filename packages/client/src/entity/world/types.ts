@@ -208,7 +208,7 @@ export interface World {
 
   // Fisher-Yates the deck's `cards` and play a brief rotation jitter tween.
   // Issue #7 of issues--deck.md.
-  shuffleDeck(deckId: string): void;
+  shuffleDeck(deckId: string, callerSeat: SeatIndex | null): void;
 
   // Round-robin `count` cards from a deck to every seat with a main hand,
   // ordered clockwise from the caller (caller first). Issue #9 of issues--deck.md.
@@ -216,7 +216,7 @@ export interface World {
 
   // Release every card in the deck along its local +X axis (top card on the
   // left), then despawn the deck.
-  spreadDeck(deckId: string): void;
+  spreadDeck(deckId: string, callerSeat: SeatIndex | null): void;
 
   // Short-press peel on a deck — atomically pop the top card, release it
   // from the deck, hold it for the calling seat. Host runs the sequence

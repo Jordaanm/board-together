@@ -289,6 +289,27 @@ describe('MergeService.merge — card↔deck', () => {
     const newer = spawnCard({ category: 'x' });
     expect(merge.canMerge(newer, deck)).toBe(false);
   });
+
+  test('card colliding with a search-locked deck is not absorbed', () => {
+    const c1 = spawnCard({ category: 'x' });
+    const c2 = spawnCard({ category: 'x' });
+    const deck = merge.merge(c1, c2)!;
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const newer = spawnCard({ category: 'x' });
+    expect(merge.canMerge(newer, deck)).toBe(false);
+    expect(merge.merge(newer, deck)).toBeNull();
+  });
+
+  test('same card absorbs into the same deck once the lock clears', () => {
+    const c1 = spawnCard({ category: 'x' });
+    const c2 = spawnCard({ category: 'x' });
+    const deck = merge.merge(c1, c2)!;
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const newer = spawnCard({ category: 'x' });
+    expect(merge.canMerge(newer, deck)).toBe(false);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: null });
+    expect(merge.canMerge(newer, deck)).toBe(true);
+  });
 });
 
 describe('MergeService.recheckMergeOverlaps', () => {

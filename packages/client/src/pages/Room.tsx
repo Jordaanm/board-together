@@ -574,9 +574,9 @@ export function Room({ roomId, isHost }: Props) {
       hostLocal: {
         delete:        (id) => handle?.controller.despawn(id),
         drawFromDeck:  (deckId, count, seat) => handle?.controller.drawFromDeck(deckId, count, seat),
-        shuffleDeck:   (deckId) => handle?.controller.shuffleDeck(deckId),
+        shuffleDeck:   (deckId, seat) => handle?.controller.shuffleDeck(deckId, seat),
         dealFromDeck:  (deckId, count, seat) => handle?.controller.dealFromDeck(deckId, count, seat),
-        spreadDeck:    (deckId) => handle?.controller.spreadDeck(deckId),
+        spreadDeck:    (deckId, seat) => handle?.controller.spreadDeck(deckId, seat),
       },
       selfSeat: getSelfSeatRef.current(),
     });

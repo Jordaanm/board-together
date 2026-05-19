@@ -352,3 +352,91 @@ describe('DeckService.drawFromDeck — singleton dissolution', () => {
     expect(lone.isContained).toBe(false);
   });
 });
+
+describe('DeckService — inspect-lock gating', () => {
+  function setupHand(seat: 0 | 1): string {
+    const hand = scene.spawn('hand', ctx);
+    hand.owner = seat;
+    hand.getComponent(HandComponent)!.setState({ isMainHand: true });
+    return hand.id;
+  }
+
+  test('draw is a no-op when the deck is locked by another seat', () => {
+    setupHand(1);
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.drawFromDeck(deck.id, 1, 1)).toBe(0);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('draw proceeds when the deck is locked by the caller', () => {
+    setupHand(0);
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.drawFromDeck(deck.id, 1, 0)).toBe(1);
+  });
+
+  test('shuffle is a no-op when locked by another seat', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.shuffleDeck(deck.id, 1)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('shuffle proceeds when the caller is the lock holder', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.shuffleDeck(deck.id, 0)).toBe(true);
+  });
+
+  test('deal is a no-op when locked by another seat', () => {
+    setupHand(1);
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.dealFromDeck(deck.id, 1, 1)).toBe(0);
+  });
+
+  test('spread is a no-op when locked by another seat', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.spreadDeck(deck.id, 1)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('peelTop is a no-op when locked by another seat', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.peelTop(deck.id, 1)).toBeNull();
+    expect(heldCards).toEqual([]);
+  });
+
+  test('peelTop proceeds when the caller is the lock holder', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.peelTop(deck.id, 0)).not.toBeNull();
+  });
+
+  test('clearSearchLocksForSeat clears every matching lock and leaves others alone', () => {
+    const deck1 = buildDeckOf('t', ['a', 'b']);
+    const deck2 = buildDeckOf('t', ['c', 'd']);
+    deck1.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    deck2.getComponent(DeckComponent)!.setState({ searchLockedBy: 1 });
+    decks.clearSearchLocksForSeat(0);
+    expect(deck1.getComponent(DeckComponent)!.state.searchLockedBy).toBeNull();
+    expect(deck2.getComponent(DeckComponent)!.state.searchLockedBy).toBe(1);
+  });
+
+  test('save round-trip strips searchLockedBy', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const json = deck.getComponent(DeckComponent)!.toJSON() as Record<string, unknown>;
+    expect('searchLockedBy' in json).toBe(false);
+    // Rehydrate via fromJSON — the lock should come back null.
+    const fresh = scene.spawn('deck', ctx);
+    fresh.getComponent(DeckComponent)!.fromJSON(json);
+    expect(fresh.getComponent(DeckComponent)!.state.searchLockedBy).toBeNull();
+  });
+});

@@ -116,6 +116,12 @@ export class MergeService {
     const aDeck = a.getComponent(DeckComponent);
     const bDeck = b.getComponent(DeckComponent);
 
+    // Inspect-locked decks refuse incoming merges. The lock holder may extract
+    // cards out via the Inspect dialog; physical collisions never absorb back
+    // in until the lock clears. Issue #2 of planning/issues--deck-inspect.md.
+    if (aDeck && aDeck.state.searchLockedBy !== null) return false;
+    if (bDeck && bDeck.state.searchLockedBy !== null) return false;
+
     let categoryMatch = false;
     if (aCard && bCard)      categoryMatch = aCard.state.category === bCard.state.category;
     else if (aCard && bDeck) categoryMatch = aCard.state.category === bDeck.state.category;

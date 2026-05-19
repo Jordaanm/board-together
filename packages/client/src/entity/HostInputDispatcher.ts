@@ -23,7 +23,9 @@ import { PhysicsComponent } from './components/PhysicsComponent';
 import { TweenComponent } from './components/TweenComponent';
 import { ZoneComponent } from './components/ZoneComponent';
 import { HandComponent } from './components/HandComponent';
+import { DeckComponent } from './components/DeckComponent';
 import { TransformComponent } from './components/TransformComponent';
+import { isLockedAgainst } from './components/deckLock';
 
 const PLAY_TO_TABLE_TWEEN_MS = 250;
 const TWEEN_INTO_HAND_MS     = 250;
@@ -61,6 +63,7 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.entityId);
     if (!entity) return false;
     if (!canManipulate({ peerSeat: msg.seat, isHost: false }, entity.owner)) return false;
+    if (deckLockedAgainst(entity, msg.seat)) return false;
     return this.hold.tryClaim(entity, msg.seat);
   }
 
@@ -166,6 +169,7 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return false;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return false;
+    if (deckLockedAgainst(entity, senderSeat)) return false;
     this.push(`draw ${msg.count} from ${entity.name}`);
     const drawn = this.decks.drawFromDeck(msg.deckId, msg.count, senderSeat);
     return drawn > 0;
@@ -179,8 +183,9 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return false;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return false;
+    if (deckLockedAgainst(entity, senderSeat)) return false;
     this.push(`shuffle ${entity.name}`);
-    return this.decks.shuffleDeck(msg.deckId);
+    return this.decks.shuffleDeck(msg.deckId, senderSeat);
   }
 
   // Issue #9 of issues--deck.md — guest right-clicks "Deal N" on a deck.
@@ -191,6 +196,7 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return false;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return false;
+    if (deckLockedAgainst(entity, senderSeat)) return false;
     this.push(`deal ${msg.count} from ${entity.name}`);
     const dealt = this.decks.dealFromDeck(msg.deckId, msg.count, senderSeat);
     return dealt > 0;
@@ -208,6 +214,7 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return null;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return null;
+    if (deckLockedAgainst(entity, senderSeat)) return null;
     const result = this.decks.peelTop(msg.deckId, senderSeat);
     if (result) this.push(`peel ${entity.name}`);
     return result;
@@ -222,8 +229,9 @@ export class HostInputDispatcher {
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return false;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return false;
+    if (deckLockedAgainst(entity, senderSeat)) return false;
     this.push(`spread ${entity.name}`);
-    return this.decks.spreadDeck(msg.deckId);
+    return this.decks.spreadDeck(msg.deckId, senderSeat);
   }
 
   // Issue #7 of issues--hand.md — guest releases a 3D-grabbed entity over
@@ -246,6 +254,15 @@ export class HostInputDispatcher {
     tween.tweenTo({ position: [handPose[0], handPose[1], handPose[2]] }, TWEEN_INTO_HAND_MS);
     return true;
   }
+}
+
+// Returns true when the entity carries a DeckComponent whose inspect lock is
+// held against `seat`. Cheap to call on entities that may or may not be decks
+// — non-decks return false.
+function deckLockedAgainst(entity: Entity, seat: SeatIndex | null): boolean {
+  const deckC = entity.getComponent(DeckComponent);
+  if (!deckC) return false;
+  return isLockedAgainst(deckC.state, seat);
 }
 
 // Walks every Hand entity and returns the one whose zone currently contains

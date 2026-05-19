@@ -19,6 +19,7 @@ import { TweenComponent } from './components/TweenComponent';
 import { PhysicsComponent } from './components/PhysicsComponent';
 import { MeshComponent } from './components/MeshComponent';
 import { HandComponent } from './components/HandComponent';
+import { isLockedAgainst } from './components/deckLock';
 
 export interface DeckHostFacade {
   despawn(entityId: string): void;
@@ -50,6 +51,18 @@ export class DeckService {
     private readonly host:       DeckHostFacade,
   ) {}
 
+  // Disconnect cleanup. Walks every deck and clears any `searchLockedBy` that
+  // matches `seat`. Issue #2 of planning/issues--deck-inspect.md. Idempotent;
+  // safe to call when no decks hold the seat's lock.
+  clearSearchLocksForSeat(seat: SeatIndex): void {
+    for (const e of this.scene.all()) {
+      const deckC = e.getComponent(DeckComponent);
+      if (!deckC) continue;
+      if (deckC.state.searchLockedBy !== seat) continue;
+      deckC.setState({ searchLockedBy: null });
+    }
+  }
+
   // Pops `min(count, deck.cards.length)` cards from the front of the deck and
   // tweens each into the caller's main hand. After the loop, `maybeDissolve`
   // checks whether the deck has shrunk to a singleton and, if so, un-hides the
@@ -60,6 +73,7 @@ export class DeckService {
     if (!deck) return 0;
     const deckC = deck.getComponent(DeckComponent);
     if (!deckC) return 0;
+    if (isLockedAgainst(deckC.state, callerSeat)) return 0;
 
     const handId = mainHandIdFor(this.scene, callerSeat);
     if (!handId) return 0;
@@ -97,11 +111,12 @@ export class DeckService {
 
   // Fisher-Yates shuffle on the deck's `cards`, plus a brief rotation jitter
   // tween for visual feedback. Issue #7 of issues--deck.md.
-  shuffleDeck(deckId: string): boolean {
+  shuffleDeck(deckId: string, callerSeat: SeatIndex | null = null): boolean {
     const deck = this.scene.getEntity(deckId);
     if (!deck) return false;
     const deckC = deck.getComponent(DeckComponent);
     if (!deckC) return false;
+    if (isLockedAgainst(deckC.state, callerSeat)) return false;
     if (deckC.state.cards.length < 2) {
       // Nothing meaningful to shuffle; still play the jitter for parity.
       this.playShuffleJitter(deck);
@@ -139,6 +154,7 @@ export class DeckService {
     if (!deck) return 0;
     const deckC = deck.getComponent(DeckComponent);
     if (!deckC) return 0;
+    if (isLockedAgainst(deckC.state, callerSeat)) return 0;
 
     const recipients = clockwiseSeatsWithMainHand(this.scene, callerSeat);
     if (recipients.length === 0) return 0;
@@ -186,11 +202,16 @@ export class DeckService {
   // despawn the now-empty deck. Index 0 (the top card) lands closest to the
   // deck; subsequent cards extend outward. `staggerMs` is the delay between
   // each card's tween start.
-  spreadDeck(deckId: string, staggerMs: number = SPREAD_STAGGER_MS_DEFAULT): boolean {
+  spreadDeck(
+    deckId:    string,
+    callerSeat: SeatIndex | null = null,
+    staggerMs:  number = SPREAD_STAGGER_MS_DEFAULT,
+  ): boolean {
     const deck = this.scene.getEntity(deckId);
     if (!deck) return false;
     const deckC = deck.getComponent(DeckComponent);
     if (!deckC) return false;
+    if (isLockedAgainst(deckC.state, callerSeat)) return false;
     const cards = [...deckC.state.cards];
     if (cards.length === 0) return false;
 
@@ -244,6 +265,7 @@ export class DeckService {
     if (!deck) return null;
     const deckC = deck.getComponent(DeckComponent);
     if (!deckC) return null;
+    if (isLockedAgainst(deckC.state, callerSeat)) return null;
     if (deckC.state.cards.length === 0) return null;
 
     const cardId = deckC.state.cards[0];

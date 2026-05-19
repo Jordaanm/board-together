@@ -165,6 +165,7 @@ class WorldImpl implements World, HandleRouter {
       this.hostInput  = new HostInputDispatcher(this.hold, this.getPeerSeat, this.scene);
       this.hostInput.setDeckService(this.decks);
       this.guestInput = new GuestInputHandler(this.hold, this.getPeerSeat, this.scene);
+      this.guestInput.setDeckService(this.decks);
       this.history_   = new SceneHistoryService(
         {
           replaceScene: (s) => this.replaceScene(s),
@@ -854,11 +855,11 @@ class WorldImpl implements World, HandleRouter {
   }
 
   // Right-click Shuffle on a deck. Issue #7 of issues--deck.md.
-  shuffleDeck(deckId: string): void {
+  shuffleDeck(deckId: string, callerSeat: SeatIndex | null): void {
     if (this.role === 'host') {
       const deck = this.scene.getEntity(deckId);
       if (deck) this.history_?.push(`shuffle ${deck.name}`);
-      this.decks?.shuffleDeck(deckId);
+      this.decks?.shuffleDeck(deckId, callerSeat);
       return;
     }
     this.transport.send({ type: 'shuffle-deck', deckId }, { reliable: true });
@@ -877,11 +878,11 @@ class WorldImpl implements World, HandleRouter {
 
   // Right-click "Spread deck" — release every card across the table along
   // the deck's local +X axis and despawn the deck.
-  spreadDeck(deckId: string): void {
+  spreadDeck(deckId: string, callerSeat: SeatIndex | null): void {
     if (this.role === 'host') {
       const deck = this.scene.getEntity(deckId);
       if (deck) this.history_?.push(`spread ${deck.name}`);
-      this.decks?.spreadDeck(deckId);
+      this.decks?.spreadDeck(deckId, callerSeat);
       return;
     }
     this.transport.send({ type: 'spread-deck', deckId }, { reliable: true });

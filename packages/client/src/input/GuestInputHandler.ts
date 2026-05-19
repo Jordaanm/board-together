@@ -8,13 +8,22 @@ import { PhysicsComponent } from '../entity/components/PhysicsComponent';
 import { type GuestInputMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { type HoldService } from '../entity/HoldService';
+import { type DeckService } from '../entity/DeckService';
 
 export class GuestInputHandler {
+  private decks: DeckService | null = null;
+
   constructor(
     private readonly hold: HoldService,
     private readonly getPeerSeat: (peerId: string) => SeatIndex | null,
     private readonly scene: SceneImpl,
   ) {}
+
+  // World wires this on host construction. Tests omit it; releasePeer skips
+  // the inspect-lock cleanup when null.
+  setDeckService(decks: DeckService): void {
+    this.decks = decks;
+  }
 
   handleMessage(peerId: string, msg: GuestInputMessage) {
     if (msg.type !== 'guest-drag-move') return;
@@ -29,10 +38,13 @@ export class GuestInputHandler {
     body.angularVelocity.setZero();
   }
 
-  // Peer disconnect: drop every hold owned by the leaving seat.
+  // Peer disconnect: drop every hold owned by the leaving seat, and clear any
+  // deck inspect-locks they were holding. Issue #2 of
+  // planning/issues--deck-inspect.md.
   releasePeer(peerId: string) {
     const seat = this.getPeerSeat(peerId);
     if (seat === null) return;
     this.hold.releaseAllForSeat(seat);
+    this.decks?.clearSearchLocksForSeat(seat);
   }
 }
