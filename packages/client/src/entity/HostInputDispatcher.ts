@@ -16,7 +16,7 @@ import { canManipulate } from '../seats/OwnershipPolicy';
 import { type HoldService } from './HoldService';
 import { type DeckService } from './DeckService';
 import { type SceneHistoryService } from './SceneHistoryService';
-import { type HoldClaim, type HoldRelease, type InvokeAction, type RequestUpdate, type ApplyImpulse, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type DrawFromDeck, type ShuffleDeck, type DealFromDeck, type SpreadDeck, type PeelAndHoldRequest, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch, type ReorderDeck } from './wire';
+import { type HoldClaim, type HoldRelease, type InvokeAction, type RequestUpdate, type ApplyImpulse, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type DrawFromDeck, type ShuffleDeck, type DealFromDeck, type SpreadDeck, type PeelAndHoldRequest, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch, type ReorderDeck, type ExtractFromDeck } from './wire';
 import { type ActionContext } from './EntityComponent';
 import { load as loadPreferences } from '../preferences/storage';
 import { PhysicsComponent } from './components/PhysicsComponent';
@@ -266,6 +266,21 @@ export class HostInputDispatcher {
     const senderSeat = this.getPeerSeat(peerId);
     if (senderSeat === null) return false;
     return this.decks.closeInspect(msg.deckId, senderSeat);
+  }
+
+  // Extract a card from a locked deck onto the table. Issue #5 of
+  // planning/issues--deck-inspect.md. DeckService.extractFromDeck rejects
+  // when the sender isn't the lock holder, the card isn't in the deck, or
+  // the hit point lies outside the table surface.
+  handleExtractFromDeck(peerId: string, msg: ExtractFromDeck): boolean {
+    if (!this.decks) return false;
+    const senderSeat = this.getPeerSeat(peerId);
+    if (senderSeat === null) return false;
+    const entity = this.scene.getEntity(msg.deckId);
+    if (!entity) return false;
+    const ok = this.decks.extractFromDeck(msg.deckId, msg.cardId, [msg.x, msg.y, msg.z], senderSeat);
+    if (ok) this.push(`extract from ${entity.name}`);
+    return ok;
   }
 
   // Reorder a locked deck. Issue #4 of planning/issues--deck-inspect.md.

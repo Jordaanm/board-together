@@ -499,6 +499,59 @@ describe('DeckService — inspect-lock gating', () => {
     expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
   });
 
+  test('extractFromDeck pops the named card and sets pose face-up at hit point', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.extractFromDeck(deck.id, 'b', [1.0, 0, 2.0], 0)).toBe(true);
+    const after = deck.getComponent(DeckComponent)!.state.cards;
+    expect(after).toEqual(before.filter((id) => id !== 'b'));
+    const card = scene.getEntity('b')!;
+    expect(card.isContained).toBe(false);
+    expect(card.parentId).toBeNull();
+    const t = card.getComponent(TransformComponent)!.state;
+    expect(t.position[0]).toBeCloseTo(1.0);
+    expect(t.position[2]).toBeCloseTo(2.0);
+    // Face-up rotation has +Y aligned with world +Y.
+    const [qx, _qy, qz, _qw] = t.rotation;
+    const yComp = 1 - 2 * (qx * qx + qz * qz);
+    expect(yComp).toBeCloseTo(1, 5);
+  });
+
+  test('extractFromDeck rejects when caller is not the lock holder', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.extractFromDeck(deck.id, 'a', [0, 0, 0], 1)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('extractFromDeck rejects an unknown card id', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.extractFromDeck(deck.id, 'z', [0, 0, 0], 0)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('extractFromDeck rejects a hit point outside the table bounds', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    // Default fallback bounds: halfWidth=6, halfDepth=4. 100 is far outside.
+    expect(decks.extractFromDeck(deck.id, 'a', [100, 0, 0], 0)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('extracting down to 1 card triggers maybeDissolve', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const deckId = deck.id;
+    expect(decks.extractFromDeck(deck.id, 'a', [0, 0, 0], 0)).toBe(true);
+    expect(despawned).toContain(deckId);
+    expect(scene.getEntity('b')!.isContained).toBe(false);
+  });
+
   test('save round-trip strips searchLockedBy', () => {
     const deck = buildDeckOf('t', ['a', 'b']);
     deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });

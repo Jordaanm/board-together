@@ -902,6 +902,11 @@ export function Room({ roomId, isHost }: Props) {
               if (seat === null) return;
               handle?.controller.reorderDeck(inspectDialog.deckId, newOrder, seat);
             }}
+            onExtract={(cardId, clientX, clientY) => {
+              const seat = getSelfSeatRef.current();
+              if (seat === null) return;
+              handle?.extractFromDeckAtScreen(inspectDialog.deckId, cardId, clientX, clientY, seat);
+            }}
           />
         </div>
       )}

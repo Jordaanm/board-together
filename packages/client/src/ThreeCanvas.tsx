@@ -283,6 +283,36 @@ export function ThreeCanvas({
         if (!playRay.ray.intersectPlane(tablePlane, playHit)) return;
         world.playCardToTable(target.entity, [playHit.x, playHit.y + 0.05, playHit.z]);
       },
+      extractFromDeckAtScreen: (deckId, cardId, clientX, clientY, seat) => {
+        const deck = world.get(deckId);
+        if (!deck) return null;
+        const rect = renderer.domElement.getBoundingClientRect();
+        // Reject anything outside the canvas (the dialog has its own bounds
+        // upstream, but a release in the browser chrome would yield a stale
+        // plane intersection from the previous frame).
+        if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+          return null;
+        }
+        playNDC.set(
+           ((clientX - rect.left) / rect.width)  * 2 - 1,
+          -((clientY - rect.top)  / rect.height) * 2 + 1,
+        );
+        playRay.setFromCamera(playNDC, camera);
+        if (!playRay.ray.intersectPlane(tablePlane, playHit)) return null;
+        // Drop on the locked deck itself → snap back. Use a small XZ
+        // proximity check against the deck's transform rather than a
+        // full mesh raycast.
+        const deckTransform = deck.entity.getComponent(TransformComponent);
+        if (deckTransform) {
+          const dx = playHit.x - deckTransform.state.position[0];
+          const dz = playHit.z - deckTransform.state.position[2];
+          const DECK_RADIUS = 0.4;
+          if (Math.hypot(dx, dz) < DECK_RADIUS) return null;
+        }
+        const hit: [number, number, number] = [playHit.x, playHit.y, playHit.z];
+        world.extractFromDeck(deckId, cardId, hit, seat);
+        return hit;
+      },
     };
     onSceneReady?.(handle);
 

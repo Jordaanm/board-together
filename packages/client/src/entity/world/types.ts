@@ -250,6 +250,10 @@ export interface World {
   // before applying.
   reorderDeck(deckId: string, newOrder: readonly string[], seat: SeatIndex): void;
 
+  // Extract a single card from a locked deck onto the table at `hitPoint`.
+  // Issue #5 of planning/issues--deck-inspect.md.
+  extractFromDeck(deckId: string, cardId: string, hitPoint: readonly [number, number, number], seat: SeatIndex): void;
+
   // Host-only — spawn one card per face-ref and immediately wrap them in a
   // fresh Deck entity (cards become children with isContained=true, so no
   // scatter). Backs the host "Generate Deck" tool. Returns a handle to the
@@ -310,6 +314,11 @@ export interface SceneHandle {
   // canvas raycast to project the pointer onto the table plane. HandPanel
   // (via Room) calls this when a tile is dragged out of the panel.
   playCardToTableAtScreen(entityId: string, clientX: number, clientY: number): void;
+  // Screen-coord wrapper around `controller.extractFromDeck`. Issue #5 of
+  // planning/issues--deck-inspect.md. Returns the world-space hit point used
+  // for the dispatch, or null when the raycast fails or the cursor lands on
+  // the locked deck itself (caller treats null as "snap back").
+  extractFromDeckAtScreen(deckId: string, cardId: string, clientX: number, clientY: number, seat: SeatIndex): [number, number, number] | null;
 }
 
 export interface WorldOptions {

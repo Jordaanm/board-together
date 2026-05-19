@@ -20,7 +20,9 @@ import { PhysicsComponent } from './components/PhysicsComponent';
 import { MeshComponent } from './components/MeshComponent';
 import { HandComponent } from './components/HandComponent';
 import { isLockedAgainst } from './components/deckLock';
+import { extractPose } from './components/extractPose';
 import { isPermutation } from './util/isPermutation';
+import { TABLE_SURFACE_Y } from '../scene/Table';
 
 export interface DeckHostFacade {
   despawn(entityId: string): void;
@@ -74,6 +76,47 @@ export class DeckService {
       snapshot[cardId] = { face: cardC.state.face, back: cardC.state.back };
     }
     return snapshot;
+  }
+
+  // Extract a single card from a locked deck onto the table at `hitPoint`.
+  // Issue #5 of planning/issues--deck-inspect.md. Validates lock holder,
+  // membership, and that the hit point lands on the table surface (within the
+  // table bounds at y ≈ 0). Returns true when the card was removed and
+  // re-posed face-up at the hit point.
+  extractFromDeck(
+    deckId:    string,
+    cardId:    string,
+    hitPoint:  readonly [number, number, number],
+    callerSeat: SeatIndex,
+  ): boolean {
+    const deck = this.scene.getEntity(deckId);
+    if (!deck) return false;
+    const deckC = deck.getComponent(DeckComponent);
+    if (!deckC) return false;
+    if (deckC.state.searchLockedBy !== callerSeat) return false;
+    const idx = deckC.state.cards.indexOf(cardId);
+    if (idx < 0) return false;
+    if (!isOnTableSurface(this.scene, hitPoint)) return false;
+    const card = this.scene.getEntity(cardId);
+    if (!card) return false;
+
+    const deckTransform = deck.getComponent(TransformComponent);
+    if (!deckTransform) return false;
+    const deckRot = deckTransform.state.rotation;
+    const pose = extractPose(deckRot, hitPoint);
+
+    const nextCards = [...deckC.state.cards];
+    nextCards.splice(idx, 1);
+    deckC.setState({ cards: nextCards });
+    this.releaseCardFromDeck(card, pose.position, pose.rotation);
+    const phys = card.getComponent(PhysicsComponent);
+    if (phys?.body) {
+      phys.body.velocity.setZero();
+      phys.body.angularVelocity.setZero();
+    }
+
+    this.maybeDissolve(deckId);
+    return true;
   }
 
   // Reorder a locked deck from inside the Inspect dialog. Issue #4 of
@@ -444,6 +487,18 @@ export class DeckService {
       cardC.setState({ face: cardC.state.face, back: cardC.state.back });
     }
   }
+}
+
+// Hit-point validation for extract: y near the table top, x/z inside the
+// table bounds. Small Y tolerance covers rounding from a screen-space
+// raycast onto the world y=0 plane.
+const TABLE_HIT_Y_TOLERANCE = 0.05;
+function isOnTableSurface(scene: SceneImpl, hit: readonly [number, number, number]): boolean {
+  if (Math.abs(hit[1] - TABLE_SURFACE_Y) > TABLE_HIT_Y_TOLERANCE) return false;
+  const bounds = scene.getTableBounds();
+  if (Math.abs(hit[0]) > bounds.halfWidth) return false;
+  if (Math.abs(hit[2]) > bounds.halfDepth) return false;
+  return true;
 }
 
 function fisherYates<T>(arr: T[]): T[] {

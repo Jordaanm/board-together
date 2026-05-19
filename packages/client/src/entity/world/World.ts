@@ -64,7 +64,7 @@ import {
   type GenerateDeckOptions,
 } from './types';
 import { getPropertySchema, clampForSchema, type PropertyDef } from '../propertySchema';
-import { type HoldRelease, type ToolBroadcast, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type PlaySoundMessage, type PeelAndHoldRequest, type PeelAndHoldReply, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch, type ReorderDeck } from '../wire';
+import { type HoldRelease, type ToolBroadcast, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type PlaySoundMessage, type PeelAndHoldRequest, type PeelAndHoldReply, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch, type ReorderDeck, type ExtractFromDeck } from '../wire';
 import { type InputEventName, type InputEventPayload } from '../../input/inputEvents';
 import { type GuestInputEvent } from '../../net/SceneState';
 
@@ -971,6 +971,26 @@ class WorldImpl implements World, HandleRouter {
     this.transport.send(msg, { reliable: true });
   }
 
+  // Extract a single card from a locked deck onto the table. Issue #5 of
+  // planning/issues--deck-inspect.md.
+  extractFromDeck(deckId: string, cardId: string, hitPoint: readonly [number, number, number], seat: SeatIndex): void {
+    if (this.role === 'host') {
+      const deck = this.scene.getEntity(deckId);
+      const ok = this.decks?.extractFromDeck(deckId, cardId, hitPoint, seat) ?? false;
+      if (ok && deck) this.history_?.push(`extract from ${deck.name}`);
+      return;
+    }
+    const msg: ExtractFromDeck = {
+      type:   'extract-from-deck',
+      deckId,
+      cardId,
+      x:      hitPoint[0],
+      y:      hitPoint[1],
+      z:      hitPoint[2],
+    };
+    this.transport.send(msg, { reliable: true });
+  }
+
   // Spawns one card per face-ref at a single deck position, then wraps them
   // in a fresh Deck entity via MergeService.assembleDeckFrom. Cards are
   // collocated and immediately parented (isContained=true) so they never
@@ -1170,6 +1190,9 @@ class WorldImpl implements World, HandleRouter {
       case 'reorder-deck':
         this.hostInput?.handleReorderDeck(peerId, msg);
         return;
+      case 'extract-from-deck':
+        this.hostInput?.handleExtractFromDeck(peerId, msg);
+        return;
       case 'open-search-reply':
         // Host doesn't expect inbound replies. Drop.
         return;
@@ -1360,6 +1383,7 @@ class WorldImpl implements World, HandleRouter {
       case 'open-search':
       case 'close-search':
       case 'reorder-deck':
+      case 'extract-from-deck':
       case 'guest-drag-move':
       case 'guest-drag-start':
       case 'guest-drag-end':

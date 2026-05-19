@@ -266,6 +266,20 @@ export interface ToolBroadcast {
   payload: unknown;
 }
 
+// Drag-extract from the Inspect dialog (issue #5 of
+// planning/issues--deck-inspect.md). Guest dispatches with the world-space
+// hit point of the cursor on the table plane; host validates lock holder +
+// cardId ∈ deck.cards + hit point on a valid table surface, pops the card,
+// releases it from the deck, and sets its pose face-up at the hit point.
+export interface ExtractFromDeck {
+  type:   'extract-from-deck';
+  deckId: string;
+  cardId: string;
+  x:      number;
+  y:      number;
+  z:      number;
+}
+
 // Drag-reorder within the Inspect dialog (issue #4 of
 // planning/issues--deck-inspect.md). `newOrder` must be a permutation of the
 // deck's current `cards`. Host validates that the sender is the lock holder
@@ -343,5 +357,6 @@ export type SceneMessage =
   | OpenSearchReply
   | CloseSearch
   | ReorderDeck
+  | ExtractFromDeck
   | ToolBroadcast
   | PlaySoundMessage;
