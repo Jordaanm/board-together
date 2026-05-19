@@ -11,6 +11,7 @@ import { type AssetEntry } from '../assets/Manifest';
 import { type BundleStore } from '../assets/BundleStore';
 import { serializeSpriteRef } from '../assets/spriteRef';
 import { useEntryImageSrc } from '../assets/useEntryImageSrc';
+import { cellStateOf, nextCellAction, type CellState } from './deckCellState';
 
 export interface GenerateDeckRequest {
   faceRefs: string[];
@@ -225,13 +226,13 @@ function Body({
 
   const [sheetSlug, setSheetSlug] = useState<string>('');
   const [backIndex, setBackIndex] = useState<number | null>(null);
+  const [excluded,  setExcluded]  = useState<Set<number>>(() => new Set());
   const [tag,       setTag]       = useState('');
 
   // Default to the first available sheet on mount / when the list changes.
   useEffect(() => {
     if (sheetSlug && sheets.some((s) => s.slug === sheetSlug)) return;
     setSheetSlug(sheets[0]?.slug ?? '');
-    setBackIndex(null);
   }, [sheets, sheetSlug]);
 
   const sheet = useMemo(
@@ -239,15 +240,65 @@ function Body({
     [sheets, sheetSlug],
   );
 
-  const total      = sheet ? (sheet.cols ?? 0) * (sheet.rows ?? 0) : 0;
-  const faceCount  = backIndex === null ? 0 : Math.max(0, total - 1);
-  const canSubmit  = sheet !== undefined && backIndex !== null && total > 1;
+  const sheetCols = sheet?.cols ?? 0;
+  const sheetRows = sheet?.rows ?? 0;
+  const total     = sheetCols * sheetRows;
+
+  // Reset cell state to defaults (last cell = Back, nothing excluded) whenever
+  // the underlying sheet identity or grid dimensions change.
+  useEffect(() => {
+    setBackIndex(total > 0 ? total - 1 : null);
+    setExcluded(new Set());
+  }, [sheetSlug, sheetCols, sheetRows, total]);
+
+  const faceCount  = total - excluded.size - (backIndex === null ? 0 : 1);
+  const canSubmit  = sheet !== undefined && backIndex !== null && faceCount >= 1 && total > 1;
+
+  const onCycle = (i: number) => {
+    const state  = cellStateOf(i, backIndex, excluded);
+    const action = nextCellAction(state, backIndex !== null);
+    switch (action.kind) {
+      case 'setBack':
+        setBackIndex(i);
+        setExcluded((prev) => {
+          if (!prev.has(i)) return prev;
+          const next = new Set(prev);
+          next.delete(i);
+          return next;
+        });
+        return;
+      case 'excludeAdd':
+        setExcluded((prev) => {
+          const next = new Set(prev);
+          next.add(i);
+          return next;
+        });
+        return;
+      case 'excludeRemove':
+        setExcluded((prev) => {
+          if (!prev.has(i)) return prev;
+          const next = new Set(prev);
+          next.delete(i);
+          return next;
+        });
+        return;
+      case 'vacateBack':
+        setBackIndex(null);
+        setExcluded((prev) => {
+          const next = new Set(prev);
+          next.add(i);
+          return next;
+        });
+        return;
+    }
+  };
 
   const submit = () => {
     if (!sheet || backIndex === null) return;
     const faceRefs: string[] = [];
     for (let i = 0; i < total; i++) {
-      if (i === backIndex) continue;
+      if (i === backIndex)   continue;
+      if (excluded.has(i))   continue;
       faceRefs.push(serializeSpriteRef(sheet.slug, i));
     }
     onGenerate({
@@ -271,7 +322,7 @@ function Body({
               <select
                 style={INPUT}
                 value={sheetSlug}
-                onChange={(e) => { setSheetSlug(e.target.value); setBackIndex(null); }}
+                onChange={(e) => setSheetSlug(e.target.value)}
               >
                 {sheets.map((s) => (
                   <option key={s.slug} value={s.slug}>
@@ -282,12 +333,17 @@ function Body({
             </div>
 
             <div style={FIELD}>
-              <span style={LABEL}>Back image</span>
+              <span style={LABEL}>Cells</span>
               <span style={HINT}>
-                Click a cell to mark it as the card back. Every other cell becomes a face.
+                Click a cell to cycle Face → None. The Back cell cycles Face → None → Back. Only one cell can be the Back.
               </span>
               {sheet && (
-                <SheetGrid sheet={sheet} bundleStore={bundleStore} selectedIndex={backIndex} onPick={setBackIndex} />
+                <SheetGrid
+                  sheet={sheet}
+                  bundleStore={bundleStore}
+                  cellState={(i) => cellStateOf(i, backIndex, excluded)}
+                  onCycle={onCycle}
+                />
               )}
             </div>
 
@@ -306,13 +362,15 @@ function Body({
       </div>
       <div style={FOOTER}>
         <span style={COUNT}>
-          {canSubmit
-            ? `${faceCount} card${faceCount === 1 ? '' : 's'} will spawn.`
-            : sheet
-              ? backIndex === null
+          {sheet
+            ? total <= 1
+              ? 'Sheet must have at least 2 cells.'
+              : backIndex === null
                 ? 'Pick a back image to continue.'
-                : 'Sheet must have at least 2 cells.'
-              : ''}
+                : faceCount < 1
+                  ? 'Pick at least one face.'
+                  : `${faceCount} card${faceCount === 1 ? '' : 's'} will spawn.`
+            : ''}
         </span>
         <div style={FOOTER_BTNS}>
           <button type="button" style={BTN} onClick={onCancel}>Cancel</button>
@@ -334,12 +392,12 @@ const SELECTED_BORDER = '2px solid var(--accent)';
 const CELL_BORDER     = '1px solid var(--line)';
 
 function SheetGrid({
-  sheet, bundleStore, selectedIndex, onPick,
+  sheet, bundleStore, cellState, onCycle,
 }: {
-  sheet:         AssetEntry;
-  bundleStore?:  BundleStore;
-  selectedIndex: number | null;
-  onPick:        (i: number) => void;
+  sheet:        AssetEntry;
+  bundleStore?: BundleStore;
+  cellState:    (i: number) => CellState;
+  onCycle:      (i: number) => void;
 }) {
   const cols = sheet.cols ?? 1;
   const rows = sheet.rows ?? 1;
@@ -356,16 +414,17 @@ function SheetGrid({
       marginTop:           4,
     }}>
       {cells.map((i) => {
-        const col       = i % cols;
-        const row       = Math.floor(i / cols);
-        const bgPosX    = cols === 1 ? '50%' : `${(col / (cols - 1)) * 100}%`;
-        const bgPosY    = rows === 1 ? '50%' : `${(row / (rows - 1)) * 100}%`;
-        const isSelected = i === selectedIndex;
+        const col    = i % cols;
+        const row    = Math.floor(i / cols);
+        const bgPosX = cols === 1 ? '50%' : `${(col / (cols - 1)) * 100}%`;
+        const bgPosY = rows === 1 ? '50%' : `${(row / (rows - 1)) * 100}%`;
+        const state  = cellState(i);
+        const isNone = state === 'none';
         return (
           <div
             key={i}
-            onClick={() => onPick(i)}
-            title={`${sheet.slug}:${i}`}
+            onClick={() => onCycle(i)}
+            title={`${sheet.slug}:${i} (${state})`}
             style={{
               aspectRatio:        '1 / 1',
               backgroundImage:    sheetSrc ? `url("${sheetSrc}")` : undefined,
@@ -373,9 +432,11 @@ function SheetGrid({
               backgroundSize:     `${cols * 100}% ${rows * 100}%`,
               backgroundPosition: `${bgPosX} ${bgPosY}`,
               backgroundRepeat:   'no-repeat',
-              border:             isSelected ? SELECTED_BORDER : CELL_BORDER,
+              border:             state === 'back' ? SELECTED_BORDER : CELL_BORDER,
               borderRadius:       3,
               cursor:             'pointer',
+              filter:             isNone ? 'grayscale(1)' : undefined,
+              opacity:            isNone ? 0.35           : undefined,
             }}
           />
         );
