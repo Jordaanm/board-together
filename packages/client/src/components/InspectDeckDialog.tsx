@@ -9,6 +9,7 @@ import {
   reduce,
   type DragState,
 } from '../entity/components/inspectDragMachine';
+import { useImageRefSrc } from '../assets/useImageRefSrc';
 import './InspectDeckDialog.css';
 
 interface CardSnapshot { face: string; back: string; }
@@ -199,59 +200,68 @@ export function InspectDeckDialog({ deckName, cardIds, snapshot, onClose, onReor
         className="inspect-deck-dialog__grid"
         data-testid="inspect-deck-dialog-grid"
       >
-        {cardIds.map((id, idx) => {
-          const snap = snapshot[id];
-          const face = snap?.face;
-          return (
-            <div
-              key={id}
-              data-cell-id={id}
-              data-cell-idx={idx}
-              data-testid={`inspect-deck-cell-${id}`}
-              className="inspect-deck-dialog__cell"
-              style={face ? { backgroundImage: `url("${face}")` } : undefined}
-              onPointerEnter={handleCellEnter(id)}
-              onPointerMove={handleCellMove}
-              onPointerLeave={cancelHover}
-              onPointerDown={handleCellPointerDown(id, idx)}
-            >
-              {!face && (
-                <div className="inspect-deck-dialog__cell-fallback">
-                  {id.slice(0, 6)}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {cardIds.map((id, idx) => (
+          <Cell
+            key={id}
+            id={id}
+            idx={idx}
+            faceRef={snapshot[id]?.face ?? ''}
+            onPointerEnter={handleCellEnter(id)}
+            onPointerMove={handleCellMove}
+            onPointerLeave={cancelHover}
+            onPointerDown={handleCellPointerDown(id, idx)}
+          />
+        ))}
       </div>
       {ghost && (
-        <DragGhost
-          face={snapshot[ghost.cardId]?.face ?? ''}
-          x={ghost.x}
-          y={ghost.y}
-        />
+        <DragGhost faceRef={snapshot[ghost.cardId]?.face ?? ''} x={ghost.x} y={ghost.y} />
       )}
       {dropIdx !== null && (
         <DropIndicator gridRef={gridRef} cellCount={cardIds.length} idx={dropIdx} />
       )}
       {hover && (
-        <div
-          className="inspect-deck-dialog__hover-preview"
-          data-testid="inspect-deck-hover-preview"
-          style={{
-            left: hover.x + 12,
-            top:  hover.y + 12,
-            backgroundImage: snapshot[hover.id]?.face
-              ? `url("${snapshot[hover.id].face}")`
-              : undefined,
-          }}
-        />
+        <HoverPreview faceRef={snapshot[hover.id]?.face ?? ''} x={hover.x} y={hover.y} />
       )}
     </div>
   );
 }
 
-function DragGhost({ face, x, y }: { face: string; x: number; y: number }) {
+function Cell({
+  id, idx, faceRef,
+  onPointerEnter, onPointerMove, onPointerLeave, onPointerDown,
+}: {
+  id: string;
+  idx: number;
+  faceRef: string;
+  onPointerEnter: (e: React.PointerEvent) => void;
+  onPointerMove:  (e: React.PointerEvent) => void;
+  onPointerLeave: (e: React.PointerEvent) => void;
+  onPointerDown:  (e: React.PointerEvent) => void;
+}) {
+  const src = useImageRefSrc(faceRef);
+  return (
+    <div
+      data-cell-id={id}
+      data-cell-idx={idx}
+      data-testid={`inspect-deck-cell-${id}`}
+      className="inspect-deck-dialog__cell"
+      style={src ? { backgroundImage: `url("${src}")` } : undefined}
+      onPointerEnter={onPointerEnter}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+      onPointerDown={onPointerDown}
+    >
+      {!src && (
+        <div className="inspect-deck-dialog__cell-fallback">
+          {id.slice(0, 6)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DragGhost({ faceRef, x, y }: { faceRef: string; x: number; y: number }) {
+  const src = useImageRefSrc(faceRef);
   return (
     <div
       className="inspect-deck-dialog__ghost"
@@ -259,7 +269,22 @@ function DragGhost({ face, x, y }: { face: string; x: number; y: number }) {
       style={{
         left: x,
         top:  y,
-        backgroundImage: face ? `url("${face}")` : undefined,
+        backgroundImage: src ? `url("${src}")` : undefined,
+      }}
+    />
+  );
+}
+
+function HoverPreview({ faceRef, x, y }: { faceRef: string; x: number; y: number }) {
+  const src = useImageRefSrc(faceRef);
+  return (
+    <div
+      className="inspect-deck-dialog__hover-preview"
+      data-testid="inspect-deck-hover-preview"
+      style={{
+        left: x + 12,
+        top:  y + 12,
+        backgroundImage: src ? `url("${src}")` : undefined,
       }}
     />
   );
