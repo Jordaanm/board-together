@@ -893,8 +893,10 @@ export function Room({ roomId, isHost }: Props) {
         >
           <InspectDeckDialog
             deckName={inspectDialog.deckName}
-            cardIds={handle?.controller.get(inspectDialog.deckId)?.entity
-              ?.getComponent(DeckComponent)?.state.cards ?? []}
+            getCardIds={() =>
+              handle?.controller.get(inspectDialog.deckId)?.entity
+                ?.getComponent(DeckComponent)?.state.cards ?? []
+            }
             snapshot={inspectDialog.snapshot}
             onClose={closeInspectDialog}
             onReorder={(newOrder) => {

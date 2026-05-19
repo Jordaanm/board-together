@@ -16,7 +16,11 @@ interface CardSnapshot { face: string; back: string; }
 
 interface Props {
   deckName:    string;
-  cardIds:     readonly string[];
+  // Polled each frame so the dialog reflects deck.cards mutations (reorder,
+  // extract, shuffle by the lock holder). The reactive `cardIds` of a React
+  // prop isn't enough — component-patches from the engine don't fire the
+  // SceneController subscription that drives Room's re-renders.
+  getCardIds:  () => readonly string[];
   snapshot:    Record<string, CardSnapshot>;
   onClose:     () => void;
   // Issue #4 — commit a reorder. `newOrder` is a permutation of `cardIds`.
@@ -28,11 +32,28 @@ interface Props {
 
 const HOVER_DELAY_MS = 300;
 
-export function InspectDeckDialog({ deckName, cardIds, snapshot, onClose, onReorder, onExtract }: Props) {
+export function InspectDeckDialog({ deckName, getCardIds, snapshot, onClose, onReorder, onExtract }: Props) {
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+
+  // Per-frame poll of deck.cards. EntityComponent.setState pushes a wire
+  // patch but does not call SceneController.notify, so we can't lean on
+  // Room's render cycle to track order changes. rAF keeps it cheap.
+  const [cardIds, setCardIds] = useState<readonly string[]>(() => getCardIds());
+  const getCardIdsRef = useRef(getCardIds);
+  getCardIdsRef.current = getCardIds;
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const next = getCardIdsRef.current();
+      setCardIds((prev) => arraysEqual(prev, next) ? prev : [...next]);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // Drag state. Held in a ref so window-level pointer handlers can mutate it
   // without going through a render cycle; mirror it into React state purely
@@ -91,31 +112,30 @@ export function InspectDeckDialog({ deckName, cardIds, snapshot, onClose, onReor
     if (hover) setHover((h) => h ? { ...h, x: e.clientX, y: e.clientY } : h);
   };
 
-  // Compute the gap index (0..n) closest to the cursor by walking visible
-  // cells in DOM order. The gap before cell `i` corresponds to insertion at
-  // index `i`; releasing past the last cell yields `n`.
+  // Compute the gap index (0..n) the cursor is currently over. Picks the
+  // cell whose center is closest to the cursor, then chooses left-edge gap
+  // (index = cellIdx) or right-edge gap (index = cellIdx + 1) based on which
+  // half of the cell the cursor is in. Releasing past the last cell yields
+  // `n`. This matches the standard reorderable-list UX: dragging cell `from`
+  // over cell `from+1` and releasing on its right half commits a move past
+  // it, instead of being silently rejected as a same-slot drop.
   const computeDropIdx = useCallback((clientX: number, clientY: number): number => {
     const grid = gridRef.current;
     if (!grid) return 0;
     const cells = Array.from(grid.querySelectorAll<HTMLElement>('[data-cell-id]'));
     if (cells.length === 0) return 0;
-    let best = cells.length;
+    let bestIdx = 0;
     let bestDist = Infinity;
     for (let i = 0; i < cells.length; i++) {
       const r = cells[i].getBoundingClientRect();
-      // Gap to the LEFT of cell i, at the cell's vertical mid-line.
-      const gapX = r.left;
-      const gapY = r.top + r.height / 2;
-      const d = Math.hypot(clientX - gapX, clientY - gapY);
-      if (d < bestDist) { bestDist = d; best = i; }
+      const cx = r.left + r.width  / 2;
+      const cy = r.top  + r.height / 2;
+      const d = Math.hypot(clientX - cx, clientY - cy);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
-    // Tail-gap (to the right of the last cell on its row).
-    const last = cells[cells.length - 1].getBoundingClientRect();
-    const gapX = last.right;
-    const gapY = last.top + last.height / 2;
-    const d = Math.hypot(clientX - gapX, clientY - gapY);
-    if (d < bestDist) best = cells.length;
-    return best;
+    const r = cells[bestIdx].getBoundingClientRect();
+    const onRight = clientX > r.left + r.width / 2;
+    return onRight ? bestIdx + 1 : bestIdx;
   }, []);
 
   const isInsideGrid = useCallback((clientX: number, clientY: number): boolean => {

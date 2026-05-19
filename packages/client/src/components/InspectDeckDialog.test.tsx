@@ -18,7 +18,7 @@ describe('InspectDeckDialog', () => {
     const { getByTestId } = render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1', 'c2']}
+        getCardIds={() => ['c1', 'c2']}
         snapshot={SNAPSHOT}
         onClose={() => {}}
       />,
@@ -33,7 +33,7 @@ describe('InspectDeckDialog', () => {
     const { getByTestId } = render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1']}
+        getCardIds={() => ['c1']}
         snapshot={SNAPSHOT}
         onClose={() => {}}
       />,
@@ -49,7 +49,7 @@ describe('InspectDeckDialog', () => {
     render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1']}
+        getCardIds={() => ['c1']}
         snapshot={SNAPSHOT}
         onClose={onClose}
       />,
@@ -63,7 +63,7 @@ describe('InspectDeckDialog', () => {
     const { getByLabelText } = render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1']}
+        getCardIds={() => ['c1']}
         snapshot={SNAPSHOT}
         onClose={onClose}
       />,
@@ -77,7 +77,7 @@ describe('InspectDeckDialog', () => {
     const { getByTestId, queryByTestId } = render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1']}
+        getCardIds={() => ['c1']}
         snapshot={SNAPSHOT}
         onClose={() => {}}
       />,
@@ -118,7 +118,7 @@ describe('InspectDeckDialog', () => {
     const { getByTestId, queryByTestId } = render(
       <InspectDeckDialog
         deckName="My Deck"
-        cardIds={['c1']}
+        getCardIds={() => ['c1']}
         snapshot={SNAPSHOT}
         onClose={() => {}}
       />,
