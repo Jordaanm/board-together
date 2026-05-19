@@ -21,6 +21,7 @@ import { ZoneComponent } from './ZoneComponent';
 import { TweenComponent } from './TweenComponent';
 import { CardComponent } from './CardComponent';
 import { FlatViewComponent } from './FlatViewComponent';
+import { isPermutation } from '../util/isPermutation';
 
 export interface HandState {
   isMainHand: boolean;
@@ -220,13 +221,6 @@ export class HandComponent extends EntityComponent<HandState> {
       sibling.setState({ isMainHand: false });
     }
   }
-}
-
-function isPermutation(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const seen = new Set(a);
-  for (const x of b) if (!seen.has(x)) return false;
-  return true;
 }
 
 function sameArrayOrder(a: readonly string[], b: readonly string[]): boolean {
