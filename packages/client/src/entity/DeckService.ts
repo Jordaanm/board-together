@@ -51,6 +51,43 @@ export class DeckService {
     private readonly host:       DeckHostFacade,
   ) {}
 
+  // Open Inspect on a deck. Issue #3 of planning/issues--deck-inspect.md.
+  // Sets `searchLockedBy = seat` and returns a snapshot of every card's
+  // face/back textures so the dialog can render thumbnails (cards inside a
+  // deck have their privacy-sensitive fields scrubbed on the wire). Returns
+  // `null` and leaves the lock untouched when the deck is unknown, lacks
+  // DeckComponent, or is already locked by another seat — caller inspects
+  // `searchLockedBy` for the rejection reason.
+  openInspect(deckId: string, seat: SeatIndex): Record<string, { face: string; back: string }> | null {
+    const deck = this.scene.getEntity(deckId);
+    if (!deck) return null;
+    const deckC = deck.getComponent(DeckComponent);
+    if (!deckC) return null;
+    if (isLockedAgainst(deckC.state, seat)) return null;
+    deckC.setState({ searchLockedBy: seat });
+    const snapshot: Record<string, { face: string; back: string }> = {};
+    for (const cardId of deckC.state.cards) {
+      const card  = this.scene.getEntity(cardId);
+      const cardC = card?.getComponent(CardComponent);
+      if (!cardC) continue;
+      snapshot[cardId] = { face: cardC.state.face, back: cardC.state.back };
+    }
+    return snapshot;
+  }
+
+  // Close Inspect on a deck. Clears the lock iff `seat` matches the current
+  // `searchLockedBy`; non-holder close is a no-op. Returns true when the lock
+  // was cleared.
+  closeInspect(deckId: string, seat: SeatIndex): boolean {
+    const deck = this.scene.getEntity(deckId);
+    if (!deck) return false;
+    const deckC = deck.getComponent(DeckComponent);
+    if (!deckC) return false;
+    if (deckC.state.searchLockedBy !== seat) return false;
+    deckC.setState({ searchLockedBy: null });
+    return true;
+  }
+
   // Disconnect cleanup. Walks every deck and clears any `searchLockedBy` that
   // matches `seat`. Issue #2 of planning/issues--deck-inspect.md. Idempotent;
   // safe to call when no decks hold the seat's lock.

@@ -139,6 +139,7 @@ export interface MenuActionDeps {
     shuffleDeck?:  (deckId: string, callerSeat: SeatIndex | null) => void;
     dealFromDeck?: (deckId: string, count: number, callerSeat: SeatIndex | null) => void;
     spreadDeck?:   (deckId: string, callerSeat: SeatIndex | null) => void;
+    inspectDeck?:  (deckId: string) => void;
   };
   selfSeat:      SeatIndex | null;
 }
@@ -185,6 +186,15 @@ export function dispatchMenuAction(
     } else {
       deps.send({ type: 'deal-from-deck', deckId: entityId, count });
     }
+    return;
+  }
+
+  // Deck inspect — opens a local React dialog (planning/issues--deck-inspect.md).
+  // The dialog itself dispatches the open-search RPC and tracks the
+  // reply; this entry just signals intent. Host and guest follow the same
+  // path because the dialog UI is the same for both.
+  if (item.kind === 'action' && item.id === 'inspect' && item.componentTypeId === 'deck') {
+    deps.hostLocal.inspectDeck?.(entityId);
     return;
   }
 

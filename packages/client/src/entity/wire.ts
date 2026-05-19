@@ -266,6 +266,34 @@ export interface ToolBroadcast {
   payload: unknown;
 }
 
+// Open Inspect on a deck (issue #3 of planning/issues--deck-inspect.md). Guest
+// sends; host validates lock-free, sets `searchLockedBy = seat`, and returns a
+// snapshot of every card's face/back textures so the dialog can render
+// thumbnails for cards that are otherwise privacy-scrubbed inside the deck.
+// Correlated by `requestId` so the guest can match the reply back to its
+// pending dialog open.
+export interface OpenSearchRequest {
+  type:      'open-search';
+  requestId: string;
+  deckId:    string;
+}
+
+export interface OpenSearchReply {
+  type:      'open-search-reply';
+  requestId: string;
+  // Present on success.
+  snapshot?: Record<string, { face: string; back: string }>;
+  deckId:    string;
+  // Present on rejection — names the seat currently holding the lock so the
+  // requester can show "🔍 <name>" instead of opening the dialog.
+  lockedBy?: SeatIndex;
+}
+
+export interface CloseSearch {
+  type:   'close-search';
+  deckId: string;
+}
+
 // Custom asset manifest snapshot. Issue #5 of issues--asset-registry.md. Host
 // broadcasts on manager Push and on peer-join (when the snapshot is
 // non-empty). Guests apply via `ManifestStore.applyPublishedSnapshot`, which
@@ -301,5 +329,8 @@ export type SceneMessage =
   | SpreadDeck
   | PeelAndHoldRequest
   | PeelAndHoldReply
+  | OpenSearchRequest
+  | OpenSearchReply
+  | CloseSearch
   | ToolBroadcast
   | PlaySoundMessage;

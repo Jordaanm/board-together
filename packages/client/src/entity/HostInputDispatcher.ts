@@ -16,7 +16,7 @@ import { canManipulate } from '../seats/OwnershipPolicy';
 import { type HoldService } from './HoldService';
 import { type DeckService } from './DeckService';
 import { type SceneHistoryService } from './SceneHistoryService';
-import { type HoldClaim, type HoldRelease, type InvokeAction, type RequestUpdate, type ApplyImpulse, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type DrawFromDeck, type ShuffleDeck, type DealFromDeck, type SpreadDeck, type PeelAndHoldRequest, type PeelAndHoldResult } from './wire';
+import { type HoldClaim, type HoldRelease, type InvokeAction, type RequestUpdate, type ApplyImpulse, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type DrawFromDeck, type ShuffleDeck, type DealFromDeck, type SpreadDeck, type PeelAndHoldRequest, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch } from './wire';
 import { type ActionContext } from './EntityComponent';
 import { load as loadPreferences } from '../preferences/storage';
 import { PhysicsComponent } from './components/PhysicsComponent';
@@ -232,6 +232,40 @@ export class HostInputDispatcher {
     if (deckLockedAgainst(entity, senderSeat)) return false;
     this.push(`spread ${entity.name}`);
     return this.decks.spreadDeck(msg.deckId, senderSeat);
+  }
+
+  // Open Inspect on a deck. Issue #3 of planning/issues--deck-inspect.md.
+  // Builds the reply payload (snapshot on success, lockedBy on rejection)
+  // without dispatching it — the World wires the reply onto the transport so
+  // sendTo-style routing stays in one place. Returns the OpenSearchReply
+  // payload sans `type` / `requestId` (those are filled in by the caller).
+  handleOpenSearchRequest(peerId: string, msg: OpenSearchRequest): Omit<OpenSearchReply, 'type' | 'requestId'> {
+    if (!this.decks) return { deckId: msg.deckId };
+    const senderSeat = this.getPeerSeat(peerId);
+    if (senderSeat === null) return { deckId: msg.deckId };
+    const entity = this.scene.getEntity(msg.deckId);
+    if (!entity) return { deckId: msg.deckId };
+    if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) {
+      return { deckId: msg.deckId };
+    }
+    const deckC = entity.getComponent(DeckComponent);
+    if (!deckC) return { deckId: msg.deckId };
+    const existing = deckC.state.searchLockedBy;
+    if (existing !== null && existing !== senderSeat) {
+      return { deckId: msg.deckId, lockedBy: existing };
+    }
+    const snapshot = this.decks.openInspect(msg.deckId, senderSeat);
+    if (!snapshot) return { deckId: msg.deckId };
+    this.push(`inspect ${entity.name}`);
+    return { deckId: msg.deckId, snapshot };
+  }
+
+  // Close Inspect on a deck. Clears the lock iff the sender is the holder.
+  handleCloseSearch(peerId: string, msg: CloseSearch): boolean {
+    if (!this.decks) return false;
+    const senderSeat = this.getPeerSeat(peerId);
+    if (senderSeat === null) return false;
+    return this.decks.closeInspect(msg.deckId, senderSeat);
   }
 
   // Issue #7 of issues--hand.md — guest releases a 3D-grabbed entity over

@@ -121,6 +121,48 @@ describe('DeckComponent — context menu', () => {
       | undefined;
     expect(shuf?.label).toBe('Shuffle');
   });
+
+  test('"Inspect" action lands between Shuffle and Deal, enabled when unlocked', () => {
+    const deck = scene.spawn('deck', ctx);
+    const items = deck.getComponent(DeckComponent)!.getMenuControls({
+      recipientSeat: 0, isHost: true, entity: deck,
+      preferences:   DEFAULT_PREFERENCES,
+    });
+    const shuffleIdx = items.findIndex((i: MenuItem) => i.kind === 'action' && i.id === 'shuffle');
+    const inspectIdx = items.findIndex((i: MenuItem) => i.kind === 'action' && i.id === 'inspect');
+    const dealIdx    = items.findIndex((i: MenuItem) => i.kind === 'submenu' && i.label === 'Deal');
+    expect(shuffleIdx).toBeLessThan(inspectIdx);
+    expect(inspectIdx).toBeLessThan(dealIdx);
+    const inspect = items[inspectIdx] as MenuItem & { kind: 'action' };
+    expect(inspect.disabled).toBeUndefined();
+  });
+
+  test('"Inspect" is disabled when locked by another seat', () => {
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const items = deck.getComponent(DeckComponent)!.getMenuControls({
+      recipientSeat: 1, isHost: false, entity: deck,
+      preferences:   DEFAULT_PREFERENCES,
+    });
+    const inspect = items.find((i: MenuItem) => i.kind === 'action' && i.id === 'inspect') as
+      | (MenuItem & { kind: 'action' })
+      | undefined;
+    expect(inspect?.disabled).toBe(true);
+    expect(inspect?.label).toContain('seat 0');
+  });
+
+  test('"Inspect" is enabled for the lock holder', () => {
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const items = deck.getComponent(DeckComponent)!.getMenuControls({
+      recipientSeat: 0, isHost: false, entity: deck,
+      preferences:   DEFAULT_PREFERENCES,
+    });
+    const inspect = items.find((i: MenuItem) => i.kind === 'action' && i.id === 'inspect') as
+      | (MenuItem & { kind: 'action' })
+      | undefined;
+    expect(inspect?.disabled).toBeUndefined();
+  });
 });
 
 describe('DeckComponent.onTryGrab', () => {
@@ -143,6 +185,16 @@ describe('DeckComponent.onTryGrab', () => {
   test('empty deck returns null (defensive fall-through during transitions)', () => {
     const deck = scene.spawn('deck', ctx);
     // Default state is cards: [].
+    expect(deck.getComponent(DeckComponent)!.onTryGrab(false)).toBeNull();
+    expect(deck.getComponent(DeckComponent)!.onTryGrab(true)).toBeNull();
+  });
+
+  test('search-locked deck refuses both short and long press', () => {
+    spawnCard('a', '', '');
+    spawnCard('b', '', '');
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ cards: ['a', 'b'], category: '' });
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
     expect(deck.getComponent(DeckComponent)!.onTryGrab(false)).toBeNull();
     expect(deck.getComponent(DeckComponent)!.onTryGrab(true)).toBeNull();
   });

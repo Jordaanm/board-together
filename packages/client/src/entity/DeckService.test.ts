@@ -429,6 +429,45 @@ describe('DeckService — inspect-lock gating', () => {
     expect(deck2.getComponent(DeckComponent)!.state.searchLockedBy).toBe(1);
   });
 
+  test('openInspect sets the lock and returns a snapshot of every card', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    scene.getEntity('a')!.getComponent(CardComponent)!.setState({ face: 'fa', back: 'ba', category: 't' });
+    scene.getEntity('b')!.getComponent(CardComponent)!.setState({ face: 'fb', back: 'bb', category: 't' });
+    const snap = decks.openInspect(deck.id, 0);
+    expect(snap).not.toBeNull();
+    expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBe(0);
+    expect(snap!['a']).toEqual({ face: 'fa', back: 'ba' });
+    expect(snap!['b']).toEqual({ face: 'fb', back: 'bb' });
+  });
+
+  test('openInspect is rejected when locked by another seat', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.openInspect(deck.id, 1)).toBeNull();
+    expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBe(0);
+  });
+
+  test('openInspect by the same seat is idempotent (snapshot returned, lock unchanged)', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.openInspect(deck.id, 0)).not.toBeNull();
+    expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBe(0);
+  });
+
+  test('closeInspect by the holder clears the lock', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    decks.openInspect(deck.id, 0);
+    expect(decks.closeInspect(deck.id, 0)).toBe(true);
+    expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBeNull();
+  });
+
+  test('closeInspect by a non-holder is a no-op', () => {
+    const deck = buildDeckOf('t', ['a', 'b']);
+    decks.openInspect(deck.id, 0);
+    expect(decks.closeInspect(deck.id, 1)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBe(0);
+  });
+
   test('save round-trip strips searchLockedBy', () => {
     const deck = buildDeckOf('t', ['a', 'b']);
     deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });

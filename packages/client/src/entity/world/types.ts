@@ -227,6 +227,23 @@ export interface World {
   // Issue #2 of issues--deck-peel.md.
   peelAndHold(deckId: string, seat: SeatIndex): Promise<import('../wire').PeelAndHoldResult | null>;
 
+  // Open Inspect on a deck (planning/issues--deck-inspect.md, issue #3). Host
+  // runs DeckService.openInspect synchronously; guest dispatches the
+  // `open-search` RPC and the promise resolves when the host replies.
+  // Resolves to:
+  //   - `{ snapshot, lockedBy: seat }` on success
+  //   - `{ snapshot: null, lockedBy: <other seat> }` if another peer holds the
+  //     lock — caller dismisses the dialog silently
+  //   - `null` when the request was refused for any other reason (unknown
+  //     deck, ownership refused, etc.)
+  openInspect(deckId: string, seat: SeatIndex): Promise<{
+    snapshot: Record<string, { face: string; back: string }> | null;
+    lockedBy: SeatIndex | null;
+  } | null>;
+
+  // Close Inspect on a deck.
+  closeInspect(deckId: string, seat: SeatIndex): void;
+
   // Host-only — spawn one card per face-ref and immediately wrap them in a
   // fresh Deck entity (cards become children with isContained=true, so no
   // scatter). Backs the host "Generate Deck" tool. Returns a handle to the

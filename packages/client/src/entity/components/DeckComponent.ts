@@ -7,6 +7,7 @@
 // Also re-derives the sibling PhysicsComponent's mass and rebuilds its shape
 // to match the new height.
 
+import * as THREE from 'three';
 import {
   EntityComponent,
   type SpawnContext,
@@ -19,6 +20,11 @@ import { MeshComponent } from './MeshComponent';
 import { PhysicsComponent } from './PhysicsComponent';
 import { CardComponent } from './CardComponent';
 import { HandComponent } from './HandComponent';
+
+// Subtle emissive glow applied to the deck's mesh while another peer holds
+// the Inspect lock. Issue #3 of planning/issues--deck-inspect.md. Indigo so
+// it reads as "in use by someone else" against the white deck side.
+const LOCK_GLOW_COLOR = 0x4060d0;
 
 export interface DeckState {
   cards:    string[];
@@ -65,6 +71,9 @@ export class DeckComponent extends EntityComponent<DeckState> {
   onPropertiesChanged(changed: Partial<DeckState>): void {
     if (changed.cards !== undefined) {
       this.applyCardsToSiblings();
+    }
+    if (changed.searchLockedBy !== undefined) {
+      this.applyLockGlow();
     }
   }
 
@@ -114,12 +123,42 @@ export class DeckComponent extends EntityComponent<DeckState> {
         { kind: 'numeric', id: 'deal', label: 'Other…', min: 1, default: 1 },
       ],
     };
+    // Inspect (planning/issues--deck-inspect.md). Disabled with the holder's
+    // seat shown when another peer is currently inspecting; the lock holder
+    // sees the entry enabled (clicking it is a no-op, but tests may rely on
+    // the menu item being present and enabled for the holder).
+    const lockedBy = this.state.searchLockedBy;
+    const lockedByOther = lockedBy !== null && lockedBy !== ctx.recipientSeat;
+    const inspectMenu: MenuItem = lockedByOther
+      ? { kind: 'action', id: 'inspect', label: `Inspect — seat ${lockedBy}`, disabled: true }
+      : { kind: 'action', id: 'inspect', label: 'Inspect' };
     return [
       drawMenu,
       { kind: 'action', id: 'shuffle', label: 'Shuffle' },
+      inspectMenu,
       dealMenu,
       { kind: 'action', id: 'spread', label: 'Spread deck' },
     ];
+  }
+
+  // Toggles a subtle emissive glow on the deck's side material whenever the
+  // inspect-lock state changes. Visible to every peer (including the holder)
+  // through standard state replication.
+  private applyLockGlow(): void {
+    const mesh = this.entity.getComponent(MeshComponent);
+    if (!mesh) return;
+    const locked = this.state.searchLockedBy !== null;
+    mesh.group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        const lambert = mat as THREE.MeshLambertMaterial;
+        if (!lambert.emissive) continue;
+        lambert.emissive.setHex(locked ? LOCK_GLOW_COLOR : 0x000000);
+        (lambert as THREE.MeshLambertMaterial & { emissiveIntensity?: number }).emissiveIntensity = locked ? 0.4 : 0;
+        lambert.needsUpdate = true;
+      }
+    });
   }
 
   private applyCardsToSiblings(): void {

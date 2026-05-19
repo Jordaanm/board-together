@@ -33,6 +33,7 @@ import { TweenComponent } from '../components/TweenComponent';
 import { HandComponent } from '../components/HandComponent';
 import { TableComponent } from '../components/TableComponent';
 import { CardComponent } from '../components/CardComponent';
+import { DeckComponent } from '../components/DeckComponent';
 import { registerCorePrimitives } from '../spawnables';
 import { getSpawnable } from '../SpawnableRegistry';
 import { defaultEntityName } from '../Entity';
@@ -63,7 +64,7 @@ import {
   type GenerateDeckOptions,
 } from './types';
 import { getPropertySchema, clampForSchema, type PropertyDef } from '../propertySchema';
-import { type HoldRelease, type ToolBroadcast, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type PlaySoundMessage, type PeelAndHoldRequest, type PeelAndHoldReply, type PeelAndHoldResult } from '../wire';
+import { type HoldRelease, type ToolBroadcast, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type PlaySoundMessage, type PeelAndHoldRequest, type PeelAndHoldReply, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch } from '../wire';
 import { type InputEventName, type InputEventPayload } from '../../input/inputEvents';
 import { type GuestInputEvent } from '../../net/SceneState';
 
@@ -135,6 +136,13 @@ class WorldImpl implements World, HandleRouter {
   // resolves the matching promise.
   private readonly pendingPeelRequests = new Map<string, (r: PeelAndHoldResult | null) => void>();
   private nextPeelRequestId = 0;
+
+  // Guest-only — same pattern for openInspect.
+  private readonly pendingInspectRequests = new Map<string, (r: {
+    snapshot: Record<string, { face: string; back: string }> | null;
+    lockedBy: SeatIndex | null;
+  } | null) => void>();
+  private nextInspectRequestId = 0;
 
   constructor(opts: WorldOptions) {
     registerCorePrimitives();
@@ -908,6 +916,48 @@ class WorldImpl implements World, HandleRouter {
     });
   }
 
+  // Open Inspect on a deck. Host runs DeckService.openInspect directly; guest
+  // dispatches the RPC and awaits the host's reply. Issue #3 of
+  // planning/issues--deck-inspect.md.
+  openInspect(deckId: string, seat: SeatIndex): Promise<{
+    snapshot: Record<string, { face: string; back: string }> | null;
+    lockedBy: SeatIndex | null;
+  } | null> {
+    if (this.role === 'host') {
+      const deck = this.scene.getEntity(deckId);
+      if (!deck) return Promise.resolve(null);
+      this.history_?.push(`inspect ${deck.name}`);
+      const deckC = deck.getComponent(DeckComponent);
+      const existing = deckC?.state.searchLockedBy ?? null;
+      if (existing !== null && existing !== seat) {
+        return Promise.resolve({ snapshot: null, lockedBy: existing });
+      }
+      const snapshot = this.decks?.openInspect(deckId, seat) ?? null;
+      if (!snapshot) return Promise.resolve(null);
+      return Promise.resolve({ snapshot, lockedBy: seat });
+    }
+    const requestId = `inspect-${this.nextInspectRequestId++}`;
+    return new Promise((resolve) => {
+      // Capture the requesting seat in the resolver so the reply handler can
+      // populate lockedBy without a separate side-channel.
+      this.pendingInspectRequests.set(requestId, (r) => {
+        if (r && r.snapshot && r.lockedBy === null) resolve({ snapshot: r.snapshot, lockedBy: seat });
+        else resolve(r);
+      });
+      const msg: OpenSearchRequest = { type: 'open-search', requestId, deckId };
+      this.transport.send(msg, { reliable: true });
+    });
+  }
+
+  closeInspect(deckId: string, seat: SeatIndex): void {
+    if (this.role === 'host') {
+      this.decks?.closeInspect(deckId, seat);
+      return;
+    }
+    const msg: CloseSearch = { type: 'close-search', deckId };
+    this.transport.send(msg, { reliable: true });
+  }
+
   // Spawns one card per face-ref at a single deck position, then wraps them
   // in a fresh Deck entity via MergeService.assembleDeckFrom. Cards are
   // collocated and immediately parented (isContained=true) so they never
@@ -1090,6 +1140,23 @@ class WorldImpl implements World, HandleRouter {
       case 'peel-and-hold-reply':
         // Host doesn't expect inbound replies. Drop.
         return;
+      case 'open-search': {
+        const result = this.hostInput?.handleOpenSearchRequest(peerId, msg) ?? { deckId: msg.deckId };
+        const reply: OpenSearchReply = {
+          type:      'open-search-reply',
+          requestId: msg.requestId,
+          ...result,
+        };
+        if (this.transport.sendTo) this.transport.sendTo(peerId, reply);
+        else                       this.transport.send(reply, { reliable: true });
+        return;
+      }
+      case 'close-search':
+        this.hostInput?.handleCloseSearch(peerId, msg);
+        return;
+      case 'open-search-reply':
+        // Host doesn't expect inbound replies. Drop.
+        return;
       case 'guest-drag-move':  this.guestInput?.handleMessage(peerId, msg);      return;
       case 'guest-drag-start':
       case 'guest-drag-end':
@@ -1247,6 +1314,22 @@ class WorldImpl implements World, HandleRouter {
         return;
       }
 
+      case 'open-search-reply': {
+        const resolve = this.pendingInspectRequests.get(msg.requestId);
+        if (!resolve) return;
+        this.pendingInspectRequests.delete(msg.requestId);
+        if (msg.snapshot) {
+          // openInspect's resolver wrapper fills in the requesting seat as
+          // lockedBy when null. Pass null here to trigger that branch.
+          resolve({ snapshot: msg.snapshot, lockedBy: null });
+        } else if (msg.lockedBy !== undefined) {
+          resolve({ snapshot: null, lockedBy: msg.lockedBy });
+        } else {
+          resolve(null);
+        }
+        return;
+      }
+
       case 'invoke-action':
       case 'request-update':
       case 'apply-impulse':
@@ -1258,6 +1341,8 @@ class WorldImpl implements World, HandleRouter {
       case 'deal-from-deck':
       case 'spread-deck':
       case 'peel-and-hold':
+      case 'open-search':
+      case 'close-search':
       case 'guest-drag-move':
       case 'guest-drag-start':
       case 'guest-drag-end':

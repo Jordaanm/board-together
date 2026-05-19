@@ -13,6 +13,7 @@ import { HostActionBar } from '../components/HostActionBar';
 import { AnchorLayout } from '../components/AnchorLayout';
 import { UIPanel } from '../components/UIPanel';
 import { HandPanel } from '../components/HandPanel';
+import { InspectDeckDialog } from '../components/InspectDeckDialog';
 import { PreferencesTrigger } from '../components/PreferencesTrigger';
 import { load as loadPreferences } from '../preferences/storage';
 import { loadDisplayName } from '../identity/displayName';
@@ -28,6 +29,7 @@ import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '.
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { DiceComponent } from '../entity/components/DiceComponent';
+import { DeckComponent } from '../entity/components/DeckComponent';
 import { RoomStateManager } from '../seats/RoomStateManager';
 import { RoomStateClient } from '../seats/RoomStateClient';
 import type { RoomStateMessage, RoomStateSnapshot } from '../seats/RoomState';
@@ -91,6 +93,11 @@ export function Room({ roomId, isHost }: Props) {
   const [bundleStore, setBundleStore]       = useState<BundleStore | null>(null);
   const [bundleCache, setBundleCache]       = useState<BundleCache | null>(null);
   const [handle, setHandle]                 = useState<SceneHandle | null>(null);
+  const [inspectDialog, setInspectDialog] = useState<{
+    deckId:   string;
+    deckName: string;
+    snapshot: Record<string, { face: string; back: string }>;
+  } | null>(null);
 
   const managerRef         = useRef<RoomStateManager | null>(null);
 
@@ -577,10 +584,45 @@ export function Room({ roomId, isHost }: Props) {
         shuffleDeck:   (deckId, seat) => handle?.controller.shuffleDeck(deckId, seat),
         dealFromDeck:  (deckId, count, seat) => handle?.controller.dealFromDeck(deckId, count, seat),
         spreadDeck:    (deckId, seat) => handle?.controller.spreadDeck(deckId, seat),
+        inspectDeck:   (deckId) => openInspectDialog(deckId),
       },
       selfSeat: getSelfSeatRef.current(),
     });
   };
+
+  const openInspectDialog = async (deckId: string) => {
+    if (!handle) return;
+    const seat = getSelfSeatRef.current();
+    if (seat === null) return;
+    const reply = await handle.controller.openInspect(deckId, seat);
+    if (!reply || !reply.snapshot) return;  // silent dismiss on rejection
+    const deck = handle.controller.get(deckId)?.entity;
+    setInspectDialog({
+      deckId,
+      deckName: deck?.name ?? 'Deck',
+      snapshot: reply.snapshot,
+    });
+  };
+
+  const closeInspectDialog = () => {
+    if (!inspectDialog) return;
+    const seat = getSelfSeatRef.current();
+    if (seat !== null && handle) {
+      handle.controller.closeInspect(inspectDialog.deckId, seat);
+    }
+    setInspectDialog(null);
+  };
+
+  // Auto-close when the deck despawns out from under the dialog.
+  useEffect(() => {
+    if (!inspectDialog || !handle) return;
+    const update = () => {
+      if (!handle.controller.get(inspectDialog.deckId)) {
+        setInspectDialog(null);
+      }
+    };
+    return handle.controller.subscribe(update);
+  }, [inspectDialog, handle]);
 
   const handleToggleFreeCamera = (on: boolean) => {
     setIsFreeCamera(on);
@@ -837,6 +879,26 @@ export function Room({ roomId, isHost }: Props) {
           onAction={handleContextAction}
           onDismiss={() => setContextMenu(null)}
         />
+      )}
+      {inspectDialog && (
+        <div
+          style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 100,
+            pointerEvents: 'auto',
+          }}
+        >
+          <InspectDeckDialog
+            deckName={inspectDialog.deckName}
+            cardIds={handle?.controller.get(inspectDialog.deckId)?.entity
+              ?.getComponent(DeckComponent)?.state.cards ?? []}
+            snapshot={inspectDialog.snapshot}
+            onClose={closeInspectDialog}
+          />
+        </div>
       )}
     </div>
   );

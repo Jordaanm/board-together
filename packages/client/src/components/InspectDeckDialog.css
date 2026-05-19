@@ -1,0 +1,100 @@
+.inspect-deck-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(80vw, 560px);
+  max-height: 80vh;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.inspect-deck-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.inspect-deck-dialog__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inspect-deck-dialog__close {
+  background: none;
+  border: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.inspect-deck-dialog__close:hover {
+  background: var(--bg);
+}
+
+.inspect-deck-dialog__grid {
+  display: grid;
+  grid-template-columns: repeat(6, 80px);
+  gap: 6px;
+  padding: 10px;
+  overflow-y: auto;
+  justify-content: start;
+}
+
+.inspect-deck-dialog__cell {
+  width: 80px;
+  height: 80px;
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+
+.inspect-deck-dialog__cell:hover {
+  border-color: var(--accent);
+}
+
+.inspect-deck-dialog__cell-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--ink-mute);
+  text-align: center;
+  padding: 4px;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.inspect-deck-dialog__hover-preview {
+  position: fixed;
+  pointer-events: none;
+  width: 200px;
+  height: 280px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: var(--shadow);
+  z-index: 9999;
+}
