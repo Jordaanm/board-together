@@ -29,6 +29,12 @@ const LOCK_GLOW_COLOR = 0x4060d0;
 export interface DeckState {
   cards:    string[];
   category: string;
+  // When true, the deck's top renders the top card's face (and the bottom
+  // renders the bottom card's back). Default false → top renders the top
+  // card's back (face-down deck) and the bottom renders the bottom card's
+  // face. Toggled via the deck's "Show top card face" / "Hide top card face"
+  // context-menu action.
+  showTopFace: boolean;
   // Transient inspect-lock (planning/issues--deck-inspect.md). Non-null while
   // a peer holds the Inspect dialog open; gates draw / shuffle / deal /
   // spread / peel / merge for every other seat. Stripped at save time alongside
@@ -55,8 +61,8 @@ export class DeckComponent extends EntityComponent<DeckState> {
   // never carry a stale lock back across a load. Mirrors the way
   // `Entity.heldBy` is omitted from `entityToSerialized`.
   toJSON(): object {
-    const { cards, category } = this.state;
-    return { cards: [...cards], category };
+    const { cards, category, showTopFace } = this.state;
+    return { cards: [...cards], category, showTopFace };
   }
 
   fromJSON(o: object): void {
@@ -64,12 +70,13 @@ export class DeckComponent extends EntityComponent<DeckState> {
     this.state = {
       cards:          raw.cards ? [...raw.cards] : [],
       category:       raw.category ?? '',
+      showTopFace:    raw.showTopFace ?? false,
       searchLockedBy: null,
     };
   }
 
   onPropertiesChanged(changed: Partial<DeckState>): void {
-    if (changed.cards !== undefined) {
+    if (changed.cards !== undefined || changed.showTopFace !== undefined) {
       this.applyCardsToSiblings();
     }
     if (changed.searchLockedBy !== undefined) {
@@ -132,13 +139,26 @@ export class DeckComponent extends EntityComponent<DeckState> {
     const inspectMenu: MenuItem = lockedByOther
       ? { kind: 'action', id: 'inspect', label: `Inspect — seat ${lockedBy}`, disabled: true }
       : { kind: 'action', id: 'inspect', label: 'Inspect' };
+    const toggleFace: MenuItem = {
+      kind:  'action',
+      id:    'toggle-top-face',
+      label: this.state.showTopFace ? 'Hide top card face' : 'Show top card face',
+    };
     return [
       drawMenu,
       { kind: 'action', id: 'shuffle', label: 'Shuffle' },
       inspectMenu,
       dealMenu,
       { kind: 'action', id: 'spread', label: 'Spread deck' },
+      toggleFace,
     ];
+  }
+
+  onAction(name: string, _ctx: ActionContext): void {
+    if (name === 'toggle-top-face') {
+      this.setState({ showTopFace: !this.state.showTopFace });
+      return;
+    }
   }
 
   // Toggles a subtle emissive glow on the deck's side material whenever the
@@ -176,14 +196,22 @@ export class DeckComponent extends EntityComponent<DeckState> {
     const topCard    = this.entity.scene?.getEntity(topId)?.getComponent(CardComponent);
     const bottomCard = this.entity.scene?.getEntity(bottomId)?.getComponent(CardComponent);
 
+    // Mesh slot `face` = +Y (visible top of the deck); `back` = -Y (bottom).
+    // When face-down (default), the top card sits face-down on the stack so
+    // its `back` shows on top; the bottom card's `face` shows underneath.
+    // Flipping `showTopFace` mirrors both ends.
+    const topFace = topCard?.state.face ?? '';
+    const topBack = topCard?.state.back ?? '';
+    const botFace = bottomCard?.state.face ?? '';
+    const botBack = bottomCard?.state.back ?? '';
     mesh.setState({
       width:  w,
       height: h,
       depth:  d,
       textureRefs: {
         ...mesh.state.textureRefs,
-        face: topCard?.state.face ?? '',
-        back: bottomCard?.state.back ?? '',
+        face: this.state.showTopFace ? topFace : topBack,
+        back: this.state.showTopFace ? botBack : botFace,
       },
     });
 

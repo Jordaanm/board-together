@@ -36,11 +36,33 @@ describe('DeckComponent — patches mesh on cards change', () => {
     expect(ms.height).toBeCloseTo(CARD_SLAB_HEIGHT * 2);
   });
 
-  test('textureRefs.face = top card face, .back = bottom card back', () => {
+  test('default (face-down): textureRefs.face = top card BACK, .back = bottom card FACE', () => {
     spawnCard('top', 'face-TOP', 'back-TOP');
     spawnCard('bot', 'face-BOT', 'back-BOT');
     const deck = scene.spawn('deck', ctx);
     deck.getComponent(DeckComponent)!.setState({ cards: ['top', 'bot'], category: '' });
+    const slots = deck.getComponent(MeshComponent)!.state.textureRefs;
+    expect(slots.face).toBe('back-TOP');
+    expect(slots.back).toBe('face-BOT');
+  });
+
+  test('showTopFace=true flips both ends: .face = top card FACE, .back = bottom card BACK', () => {
+    spawnCard('top', 'face-TOP', 'back-TOP');
+    spawnCard('bot', 'face-BOT', 'back-BOT');
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ cards: ['top', 'bot'], category: '', showTopFace: true });
+    const slots = deck.getComponent(MeshComponent)!.state.textureRefs;
+    expect(slots.face).toBe('face-TOP');
+    expect(slots.back).toBe('back-BOT');
+  });
+
+  test('toggling showTopFace alone re-applies textures without changing cards', () => {
+    spawnCard('top', 'face-TOP', 'back-TOP');
+    spawnCard('bot', 'face-BOT', 'back-BOT');
+    const deck = scene.spawn('deck', ctx);
+    const deckC = deck.getComponent(DeckComponent)!;
+    deckC.setState({ cards: ['top', 'bot'], category: '' });
+    deckC.setState({ showTopFace: true });
     const slots = deck.getComponent(MeshComponent)!.state.textureRefs;
     expect(slots.face).toBe('face-TOP');
     expect(slots.back).toBe('back-BOT');
@@ -162,6 +184,38 @@ describe('DeckComponent — context menu', () => {
       | (MenuItem & { kind: 'action' })
       | undefined;
     expect(inspect?.disabled).toBeUndefined();
+  });
+
+  test('"Show top card face" toggle labels switch on showTopFace state', () => {
+    const deck = scene.spawn('deck', ctx);
+    const deckC = deck.getComponent(DeckComponent)!;
+    const ctxMenu = {
+      recipientSeat: 0, isHost: true, entity: deck,
+      preferences:   DEFAULT_PREFERENCES,
+    };
+    const before = deckC.getMenuControls(ctxMenu)
+      .find((i: MenuItem) => i.kind === 'action' && i.id === 'toggle-top-face') as
+        (MenuItem & { kind: 'action' });
+    expect(before.label).toBe('Show top card face');
+    deckC.setState({ showTopFace: true });
+    const after = deckC.getMenuControls(ctxMenu)
+      .find((i: MenuItem) => i.kind === 'action' && i.id === 'toggle-top-face') as
+        (MenuItem & { kind: 'action' });
+    expect(after.label).toBe('Hide top card face');
+  });
+
+  test('onAction("toggle-top-face") flips the showTopFace property', () => {
+    const deck = scene.spawn('deck', ctx);
+    const deckC = deck.getComponent(DeckComponent)!;
+    const actionCtx = {
+      recipientSeat: 0, isHost: true, entity: deck,
+      preferences:   DEFAULT_PREFERENCES,
+    };
+    expect(deckC.state.showTopFace).toBe(false);
+    deckC.onAction('toggle-top-face', actionCtx);
+    expect(deckC.state.showTopFace).toBe(true);
+    deckC.onAction('toggle-top-face', actionCtx);
+    expect(deckC.state.showTopFace).toBe(false);
   });
 });
 
