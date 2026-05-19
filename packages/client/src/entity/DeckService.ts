@@ -20,6 +20,7 @@ import { PhysicsComponent } from './components/PhysicsComponent';
 import { MeshComponent } from './components/MeshComponent';
 import { HandComponent } from './components/HandComponent';
 import { isLockedAgainst } from './components/deckLock';
+import { isPermutation } from './util/isPermutation';
 
 export interface DeckHostFacade {
   despawn(entityId: string): void;
@@ -73,6 +74,22 @@ export class DeckService {
       snapshot[cardId] = { face: cardC.state.face, back: cardC.state.back };
     }
     return snapshot;
+  }
+
+  // Reorder a locked deck from inside the Inspect dialog. Issue #4 of
+  // planning/issues--deck-inspect.md. Validates that the caller is the lock
+  // holder AND that `newOrder` is a permutation of the current `cards`.
+  // Returns false on any rejection (deck missing, not locked by caller,
+  // non-permutation); `deck.cards` is left untouched on rejection.
+  reorderDeck(deckId: string, newOrder: readonly string[], callerSeat: SeatIndex): boolean {
+    const deck = this.scene.getEntity(deckId);
+    if (!deck) return false;
+    const deckC = deck.getComponent(DeckComponent);
+    if (!deckC) return false;
+    if (deckC.state.searchLockedBy !== callerSeat) return false;
+    if (!isPermutation(deckC.state.cards, newOrder)) return false;
+    deckC.setState({ cards: [...newOrder] });
+    return true;
   }
 
   // Close Inspect on a deck. Clears the lock iff `seat` matches the current

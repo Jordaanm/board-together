@@ -468,6 +468,37 @@ describe('DeckService — inspect-lock gating', () => {
     expect(deck.getComponent(DeckComponent)!.state.searchLockedBy).toBe(0);
   });
 
+  test('reorderDeck applies a valid permutation when caller is lock holder', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c', 'd']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    expect(decks.reorderDeck(deck.id, ['d', 'a', 'b', 'c'], 0)).toBe(true);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(['d', 'a', 'b', 'c']);
+  });
+
+  test('reorderDeck rejects when caller is not the lock holder', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.reorderDeck(deck.id, ['c', 'a', 'b'], 1)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('reorderDeck rejects when deck is not locked at all', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.reorderDeck(deck.id, ['c', 'a', 'b'], 0)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
+  test('reorderDeck rejects a non-permutation', () => {
+    const deck = buildDeckOf('t', ['a', 'b', 'c']);
+    deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });
+    const before = [...deck.getComponent(DeckComponent)!.state.cards];
+    expect(decks.reorderDeck(deck.id, ['a', 'b', 'x'], 0)).toBe(false);
+    expect(decks.reorderDeck(deck.id, ['a', 'b'], 0)).toBe(false);
+    expect(deck.getComponent(DeckComponent)!.state.cards).toEqual(before);
+  });
+
   test('save round-trip strips searchLockedBy', () => {
     const deck = buildDeckOf('t', ['a', 'b']);
     deck.getComponent(DeckComponent)!.setState({ searchLockedBy: 0 });

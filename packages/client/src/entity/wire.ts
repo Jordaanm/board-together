@@ -266,6 +266,16 @@ export interface ToolBroadcast {
   payload: unknown;
 }
 
+// Drag-reorder within the Inspect dialog (issue #4 of
+// planning/issues--deck-inspect.md). `newOrder` must be a permutation of the
+// deck's current `cards`. Host validates that the sender is the lock holder
+// before applying.
+export interface ReorderDeck {
+  type:     'reorder-deck';
+  deckId:   string;
+  newOrder: string[];
+}
+
 // Open Inspect on a deck (issue #3 of planning/issues--deck-inspect.md). Guest
 // sends; host validates lock-free, sets `searchLockedBy = seat`, and returns a
 // snapshot of every card's face/back textures so the dialog can render
@@ -332,5 +342,6 @@ export type SceneMessage =
   | OpenSearchRequest
   | OpenSearchReply
   | CloseSearch
+  | ReorderDeck
   | ToolBroadcast
   | PlaySoundMessage;

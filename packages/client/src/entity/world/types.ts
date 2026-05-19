@@ -244,6 +244,12 @@ export interface World {
   // Close Inspect on a deck.
   closeInspect(deckId: string, seat: SeatIndex): void;
 
+  // Reorder a locked deck from inside the Inspect dialog. Issue #4 of
+  // planning/issues--deck-inspect.md. `newOrder` must be a permutation of
+  // the deck's current `cards`; host validates the sender is the lock holder
+  // before applying.
+  reorderDeck(deckId: string, newOrder: readonly string[], seat: SeatIndex): void;
+
   // Host-only — spawn one card per face-ref and immediately wrap them in a
   // fresh Deck entity (cards become children with isContained=true, so no
   // scatter). Backs the host "Generate Deck" tool. Returns a handle to the

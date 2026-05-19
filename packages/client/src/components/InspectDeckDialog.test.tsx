@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, test, expect, afterEach, vi } from 'vitest';
 import { render, cleanup, fireEvent, act } from '@testing-library/react';
-import { InspectDeckDialog } from './InspectDeckDialog';
+import { InspectDeckDialog, applyReorder } from './InspectDeckDialog';
 
 afterEach(() => {
   cleanup();
@@ -86,6 +86,28 @@ describe('InspectDeckDialog', () => {
     expect(queryByTestId('inspect-deck-hover-preview')).toBeNull();
     act(() => { vi.advanceTimersByTime(2); });
     expect(queryByTestId('inspect-deck-hover-preview')).not.toBeNull();
+  });
+
+  test('applyReorder moves to front', () => {
+    expect(applyReorder(['a', 'b', 'c', 'd'], 2, 0)).toEqual(['c', 'a', 'b', 'd']);
+  });
+
+  test('applyReorder moves to end', () => {
+    expect(applyReorder(['a', 'b', 'c', 'd'], 0, 4)).toEqual(['b', 'c', 'd', 'a']);
+  });
+
+  test('applyReorder moves within', () => {
+    expect(applyReorder(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['b', 'a', 'c', 'd']);
+  });
+
+  test('applyReorder same-slot drop returns null', () => {
+    expect(applyReorder(['a', 'b', 'c'], 1, 1)).toBeNull();
+    expect(applyReorder(['a', 'b', 'c'], 1, 2)).toBeNull();
+  });
+
+  test('applyReorder out-of-range from returns null', () => {
+    expect(applyReorder(['a', 'b', 'c'], 5, 0)).toBeNull();
+    expect(applyReorder(['a', 'b', 'c'], -1, 0)).toBeNull();
   });
 
   test('pointerleave cancels a pending hover before it fires', () => {

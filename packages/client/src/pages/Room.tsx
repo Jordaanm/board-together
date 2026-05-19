@@ -897,6 +897,11 @@ export function Room({ roomId, isHost }: Props) {
               ?.getComponent(DeckComponent)?.state.cards ?? []}
             snapshot={inspectDialog.snapshot}
             onClose={closeInspectDialog}
+            onReorder={(newOrder) => {
+              const seat = getSelfSeatRef.current();
+              if (seat === null) return;
+              handle?.controller.reorderDeck(inspectDialog.deckId, newOrder, seat);
+            }}
           />
         </div>
       )}
