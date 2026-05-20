@@ -17,6 +17,10 @@ import { type Entity } from '../Entity';
 import { TransformComponent } from './TransformComponent';
 import { MeshComponent } from './MeshComponent';
 import { D20_VERTICES, D20_FACES, D20_BOUNDING_SPHERE_RADIUS } from '../../dice/d20';
+import { getHullForAsset, subscribeHull } from '../../physics/hullCache';
+import type { HullData } from '../../physics/hullBuilder';
+
+export type PhysicsShape = 'auto-hull' | 'box' | 'cylinder' | 'sphere';
 
 export interface PhysicsState {
   mass:        number;
@@ -30,6 +34,11 @@ export interface PhysicsState {
   // (Flip) bypass integration by writing the body quaternion directly, so
   // they remain unaffected.
   yawOnly:     boolean;
+  // Optional collision-shape override. When absent, buildShape falls back
+  // to the sibling MeshComponent's meshKind() mapping (the historical
+  // behaviour). 'auto-hull' resolves the entity's mesh asset, generates a
+  // convex hull, caches it per asset URL, and scales it by transform.scale.
+  shape?:      PhysicsShape;
 }
 
 export interface Vec3Like { x: number; y: number; z: number }
@@ -54,12 +63,17 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
   // re-add the same body without rebuilding it.
   private physicsWorld: CANNON.World | null = null;
   private bodyInWorld = false;
+  // 'auto-hull' subscription. The first build resolves the hull cache
+  // synchronously; on miss we attach to the cache and rebuild the shape
+  // once the GLB load + hull compute completes.
+  private hullUnsub: (() => void) | null = null;
 
   onSpawn(ctx: SpawnContext): void {
     const transform = this.entity.getComponent(TransformComponent)!;
     const mesh      = this.entity.getComponent(MeshComponent)!;
-    this.body = buildBody(this.state, mesh);
+    this.body = buildBody(this.state, mesh, transform);
     this.entityScene = ctx.entityScene;
+    this.maybeSubscribeHull();
 
     const [px, py, pz]     = transform.state.position;
     const [qx, qy, qz, qw] = transform.state.rotation;
@@ -92,6 +106,7 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
       this.bodyInWorld = false;
     }
     this.physicsWorld = null;
+    if (this.hullUnsub) { this.hullUnsub(); this.hullUnsub = null; }
   }
 
   onIsContainedChanged(isContained: boolean): void {
@@ -122,6 +137,24 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
     if (changed.restitution !== undefined && this.body.material)    this.body.material.restitution = changed.restitution;
     if (changed.isLocked    !== undefined) this.applyLockChange(changed.isLocked);
     if (changed.yawOnly     !== undefined) this.applyYawOnly(changed.yawOnly);
+  }
+
+  // When the component opts into 'auto-hull', subscribe through the hull
+  // cache so the body's shape is upgraded from its AABB fallback to a real
+  // ConvexPolyhedron the moment the asset's hull finishes computing. If
+  // the hull was already cached at spawn time, buildShape consumed it
+  // synchronously and this subscription will be a no-op refresh.
+  private maybeSubscribeHull(): void {
+    if (this.state.shape !== 'auto-hull') return;
+    const mesh = this.entity.getComponent(MeshComponent);
+    const ref  = mesh?.state.meshRef;
+    if (!ref || ref.startsWith('prim:')) return;
+    if (this.hullUnsub) { this.hullUnsub(); this.hullUnsub = null; }
+    this.hullUnsub = subscribeHull(ref, () => {
+      // rebuildShape consults the cache again; whether the hull is real or
+      // null, the resulting shape is the canonical one for this asset.
+      this.rebuildShape();
+    });
   }
 
   private applyYawOnly(yawOnly: boolean): void {
@@ -181,11 +214,12 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
   // hitbox to follow. Issue #2 of issues--deck.md.
   rebuildShape(): void {
     if (!this.body) return;
-    const mesh = this.entity.getComponent(MeshComponent);
-    if (!mesh) return;
+    const mesh      = this.entity.getComponent(MeshComponent);
+    const transform = this.entity.getComponent(TransformComponent);
+    if (!mesh || !transform) return;
     while (this.body.shapes.length > 0) this.body.removeShape(this.body.shapes[0]);
     const [ox, oy, oz] = mesh.meshOffset();
-    this.body.addShape(buildShape(mesh), new CANNON.Vec3(ox, oy, oz));
+    this.body.addShape(buildShapeFor(this.state, mesh, transform), new CANNON.Vec3(ox, oy, oz));
     this.body.updateBoundingRadius();
     this.body.aabbNeedsUpdate = true;
     this.body.updateMassProperties();
@@ -253,9 +287,9 @@ export class PhysicsComponent extends EntityComponent<PhysicsState> {
   }
 }
 
-function buildBody(state: PhysicsState, mesh: MeshComponent): CANNON.Body {
+function buildBody(state: PhysicsState, mesh: MeshComponent, transform: TransformComponent): CANNON.Body {
   const material = new CANNON.Material({ friction: state.friction, restitution: state.restitution });
-  const shape    = buildShape(mesh);
+  const shape    = buildShapeFor(state, mesh, transform);
   const body = new CANNON.Body({
     mass:           state.mass,
     material,
@@ -267,7 +301,13 @@ function buildBody(state: PhysicsState, mesh: MeshComponent): CANNON.Body {
   return body;
 }
 
-function buildShape(mesh: MeshComponent): CANNON.Shape {
+function buildShapeFor(state: PhysicsState, mesh: MeshComponent, transform: TransformComponent): CANNON.Shape {
+  if (state.shape === 'auto-hull') {
+    const hullShape = buildAutoHullShape(mesh, transform);
+    if (hullShape) return hullShape;
+    // Fall through to the AABB fallback below. The async hull-cache
+    // subscription in onSpawn will rebuild the shape once the hull is ready.
+  }
   const [hx, hy, hz] = mesh.halfExtents();
   switch (mesh.meshKind()) {
     case 'meeple':       return new CANNON.Cylinder(hx, hx, hy * 2, 12);
@@ -277,6 +317,32 @@ function buildShape(mesh: MeshComponent): CANNON.Shape {
     case 'unknown':
     default:             return new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
   }
+}
+
+// Looks the entity's mesh asset up in the hull cache. Returns the built
+// polyhedron on cache hit, null on miss/failure (caller falls back to AABB
+// and emits a warning). Cached hull vertices live in model space; we scale
+// by transform.scale here, matching the existing d20 pattern.
+function buildAutoHullShape(mesh: MeshComponent, transform: TransformComponent): CANNON.ConvexPolyhedron | null {
+  const ref = mesh.state.meshRef;
+  if (!ref || ref.startsWith('prim:')) {
+    console.warn(`[PhysicsComponent] auto-hull requested on non-asset meshRef "${ref}"; using AABB fallback`);
+    return null;
+  }
+  const hull = getHullForAsset(ref);
+  if (hull === undefined) return null;          // not yet loaded
+  if (hull === null) {
+    console.warn(`[PhysicsComponent] auto-hull unavailable for ${ref}; using AABB fallback`);
+    return null;
+  }
+  return buildPolyhedronFromHull(hull, transform.state.scale);
+}
+
+function buildPolyhedronFromHull(hull: HullData, scale: readonly [number, number, number]): CANNON.ConvexPolyhedron {
+  const [sx, sy, sz] = scale;
+  const vertices = hull.vertices.map(([x, y, z]) => new CANNON.Vec3(x * sx, y * sy, z * sz));
+  const faces    = hull.faces.map((f) => [...f]);
+  return new CANNON.ConvexPolyhedron({ vertices, faces });
 }
 
 // d20 hull. `boundingRadius` is the bounding-sphere radius of the visible

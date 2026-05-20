@@ -168,7 +168,7 @@ export function registerCorePrimitives(): void {
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
       { typeId: 'mesh',      state: { meshRef: 'base:bag/default', textureRefs: { default: '' }, color: '#ffffff', applyTint: false, width: 0.4, height: 0.3, depth: 0.4 } },
-      { typeId: 'physics',   state: { mass: 0.4, friction: 0.6, restitution: 0.2, isLocked: false, yawOnly: true } },
+      { typeId: 'physics',   state: { mass: 0.4, friction: 0.6, restitution: 0.2, isLocked: false, yawOnly: true, shape: 'auto-hull' } },
       { typeId: 'tween',     state: {} },
       { typeId: 'bag',       state: { contents: [] } },
     ],
