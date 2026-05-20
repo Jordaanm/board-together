@@ -31,6 +31,8 @@ interface Props {
   onToggleShowAllZones: (on: boolean) => void;
   showSnapPoints:         boolean;
   onToggleShowSnapPoints: (on: boolean) => void;
+  showHitboxes:         boolean;
+  onToggleShowHitboxes: (on: boolean) => void;
   onLoad:               (envelope: SaveEnvelope, filename: string, bundles: SaveZipBundle[]) => void;
   onRevert:             () => void;
   lastLoaded:           LastLoaded | null;
@@ -93,6 +95,8 @@ export function HostActionBar({
   onToggleShowAllZones,
   showSnapPoints,
   onToggleShowSnapPoints,
+  showHitboxes,
+  onToggleShowHitboxes,
   onLoad,
   onRevert,
   lastLoaded,
@@ -188,6 +192,11 @@ export function HostActionBar({
           label:   'Show Snap Points',
           onClick: () => onToggleShowSnapPoints(!showSnapPoints),
           checked: showSnapPoints,
+        },
+        {
+          label:   'Show Hitboxes',
+          onClick: () => onToggleShowHitboxes(!showHitboxes),
+          checked: showHitboxes,
         },
       ],
     },

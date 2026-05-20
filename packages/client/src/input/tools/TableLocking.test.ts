@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { HitboxAttachment } from './HitboxAttachment';
 import { MoveGizmo } from '../../scene/MoveGizmo';
 import { Entity } from '../../entity/Entity';
 import { TableComponent } from '../../entity/components/TableComponent';
@@ -94,8 +95,9 @@ describe('GrabTool — Table click-through (slice 5)', () => {
 
     const moveGizmo  = new MoveGizmo();
     const attachment = new AxisGizmoAttachment(scene, moveGizmo);
+    const hitboxAttachment = new HitboxAttachment(scene);
     selectCalls = [];
-    tool = new GrabTool(moveGizmo, attachment, (id) => selectCalls.push(id));
+    tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, (id) => selectCalls.push(id));
 
     table = new FakeHandle('table-1', { table: true });
     scene.add(table.obj);

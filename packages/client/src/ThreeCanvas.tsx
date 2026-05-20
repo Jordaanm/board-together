@@ -57,6 +57,7 @@ interface Props {
   getActiveToolRef:    MutableRefObject<() => string>;
   setShowAllZonesRef:  MutableRefObject<(on: boolean) => void>;
   setShowSnapPointsRef: MutableRefObject<(on: boolean) => void>;
+  setShowHitboxesRef:  MutableRefObject<(on: boolean) => void>;
   setHandViewRef:      MutableRefObject<(view: HandView | null) => void>;
   // Fires after the World is constructed inside the canvas effect; null on
   // cleanup. Replaces the ~30 scene-mutate refs that used to thread through
@@ -78,6 +79,7 @@ export function ThreeCanvas({
   onSelectRef, setHighlightRef, setActiveToolRef, getActiveToolRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
+  setShowHitboxesRef,
   setHandViewRef,
   onSceneReady,
 }: Props) {
@@ -253,6 +255,7 @@ export function ThreeCanvas({
 
     setShowAllZonesRef.current = (on) => { ZoneComponent.showAllZones = on; };
     setShowSnapPointsRef.current = (on) => { SnapPointsComponent.setShowAll(on); };
+    setShowHitboxesRef.current = (on) => { grabTool.setShowHitboxes(on, dispatcher.getContext()); };
 
     // ── SceneHandle for React ──────────────────────────────────────────
     // Bundles the live World controller with renderer-bound helpers
@@ -489,7 +492,7 @@ export function ThreeCanvas({
     isMenuOpenRef,
     freeCameraRef,
     onSelectRef, setHighlightRef, setActiveToolRef, getActiveToolRef,
-    setShowAllZonesRef, setShowSnapPointsRef, setHandViewRef,
+    setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);
 

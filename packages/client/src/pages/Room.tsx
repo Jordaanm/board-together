@@ -77,6 +77,7 @@ export function Room({ roomId, isHost }: Props) {
   const [activeToolId, setActiveToolId] = useState<string>(TOOL_CATALOGUE[0]?.id ?? 'grab');
   const [showAllZones, setShowAllZones] = useState(false);
   const [showSnapPoints, setShowSnapPoints] = useState(false);
+  const [showHitboxes, setShowHitboxes] = useState(false);
   const [roomName,     setRoomName]     = useState<string>('');
   const [hasPassword,  setHasPassword]  = useState<boolean>(false);
   const [bans,         setBans]         = useState<PublicBanEntry[]>([]);
@@ -122,6 +123,7 @@ export function Room({ roomId, isHost }: Props) {
   const getActiveToolRef   = useRef<() => string>(() => activeToolId);
   const setShowAllZonesRef = useRef<(on: boolean) => void>(noop);
   const setShowSnapPointsRef = useRef<(on: boolean) => void>(noop);
+  const setShowHitboxesRef = useRef<(on: boolean) => void>(noop);
   const setHandViewRef     = useRef<(view: HandView | null) => void>(noop);
   const claimSeatRef       = useRef<(seatIndex: SeatIndex) => void>(noop);
   const kickPeerRef        = useRef<(peerId: string) => void>(noop);
@@ -645,6 +647,11 @@ export function Room({ roomId, isHost }: Props) {
     setShowSnapPointsRef.current(on);
   };
 
+  const handleToggleShowHitboxes = (on: boolean) => {
+    setShowHitboxes(on);
+    setShowHitboxesRef.current(on);
+  };
+
   // Composes a hand-tile context menu via the same aggregator the 3D path
   // uses, so component-contributed items appear identically. Replaces the old
   // `requestHandTileMenuRef` indirection.
@@ -695,6 +702,7 @@ export function Room({ roomId, isHost }: Props) {
         getActiveToolRef={getActiveToolRef}
         setShowAllZonesRef={setShowAllZonesRef}
         setShowSnapPointsRef={setShowSnapPointsRef}
+        setShowHitboxesRef={setShowHitboxesRef}
         setHandViewRef={setHandViewRef}
         onSceneReady={setHandle}
       />
@@ -715,6 +723,8 @@ export function Room({ roomId, isHost }: Props) {
               onToggleShowAllZones={handleToggleShowAllZones}
               showSnapPoints={showSnapPoints}
               onToggleShowSnapPoints={handleToggleShowSnapPoints}
+              showHitboxes={showHitboxes}
+              onToggleShowHitboxes={handleToggleShowHitboxes}
               onLoad={(envelope, filename, bundles) => {
                 handle.controller.history?.setLastLoaded({
                   snapshot: envelope.scene,

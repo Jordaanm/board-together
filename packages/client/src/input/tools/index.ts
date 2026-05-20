@@ -10,6 +10,7 @@ import { PingTool } from './PingTool';
 import { FlickTool } from './FlickTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { FlickArrowAttachment } from './FlickArrowAttachment';
+import { HitboxAttachment } from './HitboxAttachment';
 import { type Tool } from './types';
 
 export { ToolDispatcher, type ToolDispatcherDeps } from './ToolDispatcher';
@@ -18,6 +19,7 @@ export { PingTool } from './PingTool';
 export { FlickTool } from './FlickTool';
 export { AxisGizmoAttachment } from './AxisGizmoAttachment';
 export { FlickArrowAttachment } from './FlickArrowAttachment';
+export { HitboxAttachment } from './HitboxAttachment';
 export type { Tool, ToolContext, ToolPointerEvent, ToolAttachment } from './types';
 
 export interface ToolFactoryDeps {
@@ -42,6 +44,7 @@ export const TOOL_CATALOGUE: ToolFactory[] = [
     create: (deps) => new GrabTool(
       deps.moveGizmo,
       new AxisGizmoAttachment(deps.scene, deps.moveGizmo),
+      new HitboxAttachment(deps.scene),
       deps.onSelect,
     ),
   },

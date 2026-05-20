@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { HitboxAttachment } from './HitboxAttachment';
 import { MoveGizmo } from '../../scene/MoveGizmo';
 import { Entity } from '../../entity/Entity';
 import { EntityComponent, type GrabIntent } from '../../entity/EntityComponent';
@@ -181,7 +182,8 @@ beforeEach(() => {
 
   const moveGizmo  = new MoveGizmo();
   const attachment = new AxisGizmoAttachment(scene, moveGizmo);
-  tool = new GrabTool(moveGizmo, attachment, () => {});
+  const hitboxAttachment = new HitboxAttachment(scene);
+  tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, () => {});
 });
 
 afterEach(() => {

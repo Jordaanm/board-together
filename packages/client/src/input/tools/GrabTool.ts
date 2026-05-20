@@ -21,6 +21,7 @@ import { type MoveGizmo, type GizmoAxis } from '../../scene/MoveGizmo';
 import { projectRayOntoAxis } from '../axisDrag';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { type HitboxAttachment } from './HitboxAttachment';
 import { findDropTargetAt } from '../dropTargetRegistry';
 import { type PeelAndHoldResult } from '../../entity/wire';
 import { type SeatIndex } from '../../seats/SeatLayout';
@@ -92,10 +93,21 @@ export class GrabTool implements Tool {
   private selectedEntityId: string | null = null;
 
   constructor(
-    private readonly gizmo:      MoveGizmo,
-    private readonly attachment: AxisGizmoAttachment,
-    private readonly onSelect:   (id: string | null) => void,
+    private readonly gizmo:             MoveGizmo,
+    private readonly attachment:        AxisGizmoAttachment,
+    private readonly hitboxAttachment:  HitboxAttachment,
+    private readonly onSelect:          (id: string | null) => void,
   ) {}
+
+  // Exposed for the host-side toggle. ThreeCanvas calls this when the
+  // "Show Hitboxes" checkbox flips; passing the current selection so an
+  // already-selected entity gains/loses its wireframe immediately.
+  setShowHitboxes(on: boolean, ctx: ToolContext): void {
+    const handle = this.selectedEntityId && this.active
+      ? (ctx.world.get(this.selectedEntityId) ?? null)
+      : null;
+    this.hitboxAttachment.setEnabled(on, handle, ctx);
+  }
 
   // ── Public API for ThreeCanvas ─────────────────────────────────────────
   setSelection(id: string | null, ctx: ToolContext): void {
@@ -121,6 +133,7 @@ export class GrabTool implements Tool {
   onDeactivate(ctx: ToolContext): void {
     this.active = false;
     this.attachment.detach();
+    this.hitboxAttachment.detach();
     // Drop any in-flight gesture as a safety net — caller usually rejects
     // tool-switch during an active gesture, but onDeactivate must leave a
     // clean slate either way.
@@ -321,24 +334,29 @@ export class GrabTool implements Tool {
     }
 
     this.attachment.update(_dt);
+    this.hitboxAttachment.update(_dt);
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
   private syncAttachment(ctx: ToolContext): void {
     if (!this.active) {
       this.attachment.detach();
+      this.hitboxAttachment.detach();
       return;
     }
     if (this.selectedEntityId === null) {
       this.attachment.detach();
+      this.hitboxAttachment.detach();
       return;
     }
     const handle = ctx.world.get(this.selectedEntityId);
     if (!handle) {
       this.attachment.detach();
+      this.hitboxAttachment.detach();
       return;
     }
     this.attachment.attach(handle, ctx);
+    this.hitboxAttachment.attach(handle, ctx);
   }
 
   private cancelGesture(ctx: ToolContext): void {
