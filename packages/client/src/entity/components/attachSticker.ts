@@ -128,6 +128,7 @@ export function createSurfaceChild(
     meshRef:     'prim:plane',
     textureRefs: { default: '' },
     color:       '#ffffff',
+    applyTint:   false,
     width:       size[0],
     height:      0,
     depth:       size[1],

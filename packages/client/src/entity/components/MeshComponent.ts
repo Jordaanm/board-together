@@ -46,6 +46,13 @@ export interface MeshState {
   meshRef:     string;
   textureRefs: Record<string, string>;
   color:       string;
+  // Gates whether `color` is multiplied into the material's diffuse. Off by
+  // default — Lambert/Standard `material.color * map` makes any non-white
+  // tint wash out a bound texture, which surprised users on cards/decks
+  // whose defaults sit at `#fafafa`. Solid-colour primitives (meeple, disc,
+  // dice) flip it on through their spawnable defaults so their painted
+  // colour survives.
+  applyTint?:  boolean;
   // Independent per-axis dimensions (issue #3 of property-schema-refactor).
   // Pre-refactor `size` was a scalar OR `[w, h, d]` triple; the split exposes
   // each axis as its own editable field. Scalar primitives (d6, d20) keep
@@ -60,8 +67,9 @@ export class MeshComponent extends EntityComponent<MeshState> {
   static label    = 'Mesh';
   static requires = ['transform'] as const;
   static propertySchema: readonly PropertyDef<MeshState>[] = [
-    { key: 'color',   label: 'Color', type: 'color' },
-    { key: 'meshRef', label: 'Mesh',  type: 'asset:model' },
+    { key: 'color',     label: 'Color',      type: 'color' },
+    { key: 'applyTint', label: 'Apply Tint', type: 'boolean' },
+    { key: 'meshRef',   label: 'Mesh',       type: 'asset:model' },
     {
       key:   'textureUrl',
       label: 'Texture',
@@ -118,7 +126,11 @@ export class MeshComponent extends EntityComponent<MeshState> {
       // import cycle (PhysicsComponent imports MeshComponent).
       const phys = this.entity.components.get('physics') as { rebuildShape?: () => void } | undefined;
       phys?.rebuildShape?.();
-    } else if (changed.textureRefs !== undefined || changed.color !== undefined) {
+    } else if (
+      changed.textureRefs !== undefined ||
+      changed.color       !== undefined ||
+      changed.applyTint   !== undefined
+    ) {
       this.applyMaterialAttributes();
     }
   }
@@ -216,7 +228,11 @@ export class MeshComponent extends EntityComponent<MeshState> {
     if (actionId === 'set-tint') {
       const value = (args as { value?: unknown } | undefined)?.value;
       if (typeof value !== 'string') return;
-      this.setState({ color: value });
+      // Opening the picker is an explicit intent to tint; flip `applyTint`
+      // on so the picked colour actually multiplies the material. Without
+      // this the tint sets `color` but the toggle defaults to off and the
+      // picker silently does nothing.
+      this.setState({ color: value, applyTint: true });
       return;
     }
   }
@@ -294,7 +310,7 @@ export class MeshComponent extends EntityComponent<MeshState> {
 
   private applyMaterialAttributes(): void {
     this.unsubAllTextures();
-    const tint  = this.state.color || '#ffffff';
+    const tint  = this.state.applyTint ? (this.state.color || '#ffffff') : '#ffffff';
     const slots = this.state.textureRefs ?? {};
 
     const apply = (mat: THREE.Material, slot: string): void => {

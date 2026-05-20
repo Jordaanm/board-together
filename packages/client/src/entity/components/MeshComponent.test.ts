@@ -107,12 +107,20 @@ describe('MeshComponent — prim:plane', () => {
     expect(fresh.toJSON()).toEqual(json);
   });
 
-  test('tint change applies via onPropertiesChanged', () => {
-    const { mesh } = spawnPlane();
+  test('tint change applies via onPropertiesChanged when applyTint is on', () => {
+    const { mesh } = spawnPlane({ applyTint: true });
     mesh.setState({ color: '#ff0000' });
     const child = mesh.group.children[0] as THREE.Mesh;
     const mat   = child.material as THREE.MeshLambertMaterial;
     expect(mat.color.getHexString()).toBe('ff0000');
+  });
+
+  test('tint is ignored when applyTint is off (default)', () => {
+    const { mesh } = spawnPlane();
+    mesh.setState({ color: '#ff0000' });
+    const child = mesh.group.children[0] as THREE.Mesh;
+    const mat   = child.material as THREE.MeshLambertMaterial;
+    expect(mat.color.getHexString()).toBe('ffffff');
   });
 
   test('textureRefs.default routes through applyMaterialAttributes (placeholder texture installed)', () => {
@@ -258,7 +266,7 @@ describe('MeshComponent — propertySchema (issue #2 of property-schema-refactor
   test('declares static label and color/meshRef/textureUrl entries', () => {
     expect(MeshComponent.label).toBe('Mesh');
     const keys = MeshComponent.propertySchema.map(d => d.key);
-    expect(keys).toEqual(['color', 'meshRef', 'textureUrl', 'width', 'height', 'depth']);
+    expect(keys).toEqual(['color', 'applyTint', 'meshRef', 'textureUrl', 'width', 'height', 'depth']);
   });
 
   test('textureUrl adapter get returns the default ref', () => {
