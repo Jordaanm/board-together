@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import { type Entity } from '../Entity';
 import { type SpawnContext } from '../EntityComponent';
-import { SceneImpl, entityToSerialized, type EntitySerialized } from '../Scene';
+import { SceneImpl, entityToSerialized, newGuid, type EntitySerialized } from '../Scene';
 import { HostReplicatorV2 } from '../HostReplicatorV2';
 import { componentRegistry } from '../ComponentRegistry';
 import { HoldService } from '../HoldService';
@@ -432,6 +432,94 @@ class WorldImpl implements World, HandleRouter {
     }
     if (removed.length > 0 && this.replicator) this.replicator.enqueueDespawn(removed);
     if (removed.length > 0) this.notify();
+  }
+
+  // Host-only — deep-clone an entity and its descendant tree. Every entity in
+  // the copy receives a fresh GUID; component-state strings matching a
+  // duplicated id are remapped through the same id table so DeckComponent.cards,
+  // ZoneComponent.containedIds and any customData id-refs keep pointing inside
+  // the copy. The duplicate root becomes top-level (parentId=null,
+  // isContained=false) offset slightly on the X/Z plane; descendants receive
+  // the same offset so relative spatial layout is preserved.
+  duplicateEntity(id: string): EntityHandle | null {
+    if (this.role !== 'host') throw new Error('World.duplicateEntity is host-only');
+    const root = this.scene.getEntity(id);
+    if (!root) return null;
+    if (root.hasComponent(TableComponent)) return null;
+
+    this.history_?.push(`duplicate ${root.name}`);
+
+    // BFS collect the descendant tree so parents come before their children;
+    // matches the order scene.load expects for cross-entity id resolution.
+    const order: Entity[] = [];
+    const queue: Entity[] = [root];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      order.push(cur);
+      for (const childId of cur.children) {
+        const child = this.scene.getEntity(childId);
+        if (child) queue.push(child);
+      }
+    }
+
+    const idMap = new Map<string, string>();
+    for (const e of order) idMap.set(e.id, newGuid());
+
+    const OFFSET: [number, number, number] = [0.3, 0, 0.3];
+
+    const snaps: EntitySerialized[] = order.map((e, idx) => {
+      const base = entityToSerialized(e);
+      const isRoot = idx === 0;
+      const newId = idMap.get(e.id)!;
+      const components: Record<string, object> = {};
+      for (const [typeId, state] of Object.entries(base.components)) {
+        components[typeId] = deepRemapIds(state, idMap) as object;
+      }
+      const remappedParent = base.parentId ? idMap.get(base.parentId) ?? null : null;
+      const out: EntitySerialized = {
+        id:            newId,
+        type:          base.type,
+        name:          isRoot ? `${base.name} (copy)` : base.name,
+        tags:          [...base.tags],
+        owner:         base.owner,
+        privateToSeat: base.privateToSeat,
+        parentId:      isRoot ? null : remappedParent,
+        children:      base.children.map(c => idMap.get(c)).filter((c): c is string => !!c),
+        isContained:   isRoot ? false : base.isContained,
+        components,
+      };
+      if (base.customData) {
+        out.customData = deepRemapIds(base.customData, idMap) as Record<string, string>;
+      }
+      const transform = out.components['transform'] as { position?: [number, number, number] } | undefined;
+      if (transform?.position) {
+        transform.position = [
+          transform.position[0] + OFFSET[0],
+          transform.position[1] + OFFSET[1],
+          transform.position[2] + OFFSET[2],
+        ];
+      }
+      return out;
+    });
+
+    const ctx: SpawnContext = { scene: this.threeScene, physics: this.physics, entityScene: this.scene };
+    this.scene.load(snaps, ctx);
+
+    // Guests process each entity-spawn independently, so children must arrive
+    // before parents — otherwise a parent's onSpawn (e.g. DeckComponent.
+    // applyCardsToSiblings looking up its card siblings) runs against an empty
+    // scene and renders stale defaults. Local host load was atomic via
+    // scene.load above so ordering only matters on the wire.
+    if (this.replicator) {
+      for (let i = snaps.length - 1; i >= 0; i--) {
+        this.replicator.enqueueEntitySpawn(snaps[i]);
+      }
+    }
+    this.notify();
+
+    const rootCopyId = idMap.get(root.id)!;
+    const rootCopy = this.scene.getEntity(rootCopyId);
+    return rootCopy ? this.handleFor(rootCopy) : null;
   }
 
   // Entity-level field write (issue #1 of property-schema-refactor). Writes
@@ -1468,6 +1556,24 @@ function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+// Walks an arbitrary JSON value and rewrites any string equal to a key of
+// `idMap` with the mapped value. Used by `duplicateEntity` to remap entity-id
+// references inside component state (DeckComponent.cards,
+// ZoneComponent.containedIds, customData, etc.) without per-component schema
+// knowledge — GUIDs are unique enough that a value-equality match is safe.
+function deepRemapIds(value: unknown, idMap: Map<string, string>): unknown {
+  if (typeof value === 'string') return idMap.get(value) ?? value;
+  if (Array.isArray(value)) return value.map(v => deepRemapIds(v, idMap));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = deepRemapIds(v, idMap);
+    }
+    return out;
+  }
+  return value;
 }
 
 function normaliseCustomData(value: unknown): Record<string, string> {

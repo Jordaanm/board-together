@@ -25,6 +25,7 @@ function renderPanel(objects: ObjectSummary[], selectedId: string | null) {
         onMutateElement={noop}
         onRemoveElement={noop}
         onDeleteEntity={noop}
+        onDuplicateEntity={noop}
       />
     </AnchorLayout>,
   );

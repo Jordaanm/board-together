@@ -58,6 +58,7 @@ interface Props {
   onMutateElement:      (surfaceId: string, elementId: string, patch: Record<string, unknown>) => void;
   onRemoveElement:      (surfaceId: string, elementId: string) => void;
   onDeleteEntity:       (id: string) => void;
+  onDuplicateEntity:    (id: string) => void;
 }
 
 const PANEL: React.CSSProperties = {
@@ -179,7 +180,7 @@ export function EditorPanel({
   onUpdateEntityField, onUpdateComponentProp,
   onToggleFreeCamera, onToolAction,
   onMutateElement, onRemoveElement,
-  onDeleteEntity,
+  onDeleteEntity, onDuplicateEntity,
 }: Props) {
   const [open, setOpen]           = useState(true);
   const [collapsed, setCollapsed] = useState(false);
@@ -219,6 +220,7 @@ export function EditorPanel({
             onUpdateEntityField={onUpdateEntityField}
             onUpdateComponentProp={onUpdateComponentProp}
             onDeleteEntity={onDeleteEntity}
+            onDuplicateEntity={onDuplicateEntity}
           />
           {selected?.surface && (
             <SurfaceElementsSection
@@ -350,13 +352,14 @@ function SceneGraphNode({
 
 function PropertyEditor({
   selected, manifestStore,
-  onUpdateEntityField, onUpdateComponentProp, onDeleteEntity,
+  onUpdateEntityField, onUpdateComponentProp, onDeleteEntity, onDuplicateEntity,
 }: {
   selected:              ObjectSummary | null;
   manifestStore:         ManifestStore | null;
   onUpdateEntityField:   (id: string, key: string, value: unknown) => void;
   onUpdateComponentProp: (id: string, typeId: string, key: string, value: unknown) => void;
   onDeleteEntity:        (id: string) => void;
+  onDuplicateEntity:     (id: string) => void;
 }) {
   if (!selected) {
     return (
@@ -373,6 +376,7 @@ function PropertyEditor({
         selected={selected}
         onUpdateEntityField={onUpdateEntityField}
         onDeleteEntity={onDeleteEntity}
+        onDuplicateEntity={onDuplicateEntity}
       />
       {selected.sections.map(section => (
         <ComponentSection
@@ -388,11 +392,12 @@ function PropertyEditor({
 }
 
 function EntitySection({
-  selected, onUpdateEntityField, onDeleteEntity,
+  selected, onUpdateEntityField, onDeleteEntity, onDuplicateEntity,
 }: {
   selected:            ObjectSummary;
   onUpdateEntityField: (id: string, key: string, value: unknown) => void;
   onDeleteEntity:      (id: string) => void;
+  onDuplicateEntity:   (id: string) => void;
 }) {
   const isTable = selected.id === TABLE_ENTITY_ID;
   return (
@@ -422,23 +427,38 @@ function EntitySection({
         customData={selected.customData}
         onChange={(next) => onUpdateEntityField(selected.id, 'customData', next)}
       />
-      <button
-        type="button"
-        style={{
-          ...SPAWN_BTN,
-          width:        '100%',
-          marginTop:    4,
-          background:   isTable ? 'var(--surface-2)' : 'color-mix(in oklab, var(--accent) 22%, transparent)',
-          borderColor:  isTable ? 'var(--line)' : 'color-mix(in oklab, var(--accent) 45%, transparent)',
-          color:        isTable ? 'var(--ink-mute)' : 'var(--accent-deep)',
-          cursor:       isTable ? 'not-allowed' : 'pointer',
-        }}
-        disabled={isTable}
-        title={isTable ? 'The Table cannot be deleted' : 'Delete this entity'}
-        onClick={() => onDeleteEntity(selected.id)}
-      >
-        Delete Entity
-      </button>
+      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+        <button
+          type="button"
+          style={{
+            ...SPAWN_BTN,
+            background:   isTable ? 'var(--surface-2)' : 'var(--bg)',
+            borderColor:  'var(--line)',
+            color:        isTable ? 'var(--ink-mute)' : 'var(--ink)',
+            cursor:       isTable ? 'not-allowed' : 'pointer',
+          }}
+          disabled={isTable}
+          title={isTable ? 'The Table cannot be duplicated' : 'Duplicate this entity'}
+          onClick={() => onDuplicateEntity(selected.id)}
+        >
+          Duplicate
+        </button>
+        <button
+          type="button"
+          style={{
+            ...SPAWN_BTN,
+            background:   isTable ? 'var(--surface-2)' : 'color-mix(in oklab, var(--accent) 22%, transparent)',
+            borderColor:  isTable ? 'var(--line)' : 'color-mix(in oklab, var(--accent) 45%, transparent)',
+            color:        isTable ? 'var(--ink-mute)' : 'var(--accent-deep)',
+            cursor:       isTable ? 'not-allowed' : 'pointer',
+          }}
+          disabled={isTable}
+          title={isTable ? 'The Table cannot be deleted' : 'Delete this entity'}
+          onClick={() => onDeleteEntity(selected.id)}
+        >
+          Delete
+        </button>
+      </div>
     </div>
   );
 }

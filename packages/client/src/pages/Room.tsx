@@ -580,6 +580,7 @@ export function Room({ roomId, isHost }: Props) {
       send:     (msg) => sendRef.current(msg),
       hostLocal: {
         delete:        (id) => handle?.controller.despawn(id),
+        duplicate:     (id) => { handle?.controller.duplicateEntity(id); },
         drawFromDeck:  (deckId, count, seat) => handle?.controller.drawFromDeck(deckId, count, seat),
         shuffleDeck:   (deckId, seat) => handle?.controller.shuffleDeck(deckId, seat),
         dealFromDeck:  (deckId, count, seat) => handle?.controller.dealFromDeck(deckId, count, seat),
@@ -808,6 +809,7 @@ export function Room({ roomId, isHost }: Props) {
               onMutateElement={(sid, eid, patch) => handle.controller.mutateSurfaceElement(sid, eid, patch)}
               onRemoveElement={(sid, eid) => handle.controller.removeSurfaceElement(sid, eid)}
               onDeleteEntity={(id) => handle.controller.despawn(id)}
+              onDuplicateEntity={(id) => { handle.controller.duplicateEntity(id); }}
             />
           </UIPanel>
         )}

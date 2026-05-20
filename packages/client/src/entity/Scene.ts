@@ -235,7 +235,7 @@ export class SceneImpl {
   }
 }
 
-function newGuid(): string {
+export function newGuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }

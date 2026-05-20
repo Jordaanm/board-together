@@ -171,11 +171,12 @@ describe('ContextMenuController — Table suppresses Delete (slice 5)', () => {
     expect(builtinHostActions(e)).toEqual([]);
   });
 
-  test('builtinHostActions returns Delete for a non-Table entity', () => {
+  test('builtinHostActions returns Duplicate + Delete for a non-Table entity', () => {
     const e = new Entity({ id: 'd', type: 'die', name: 'd' });
     const items = builtinHostActions(e);
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'action', id: '__delete' });
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: 'action', id: '__duplicate' });
+    expect(items[1]).toMatchObject({ kind: 'action', id: '__delete' });
   });
 });
 

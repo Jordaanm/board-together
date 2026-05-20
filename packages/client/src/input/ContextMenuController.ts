@@ -26,7 +26,8 @@ const MENU_PADDING  = 12;
 
 // Transitional host-only built-in. Roll has migrated onto ValueComponent;
 // Delete is still pending a home (see todo.md — base class vs. editor panel).
-const BUILTIN_DELETE: MenuItem = { kind: 'action', id: '__delete', label: 'Delete' };
+const BUILTIN_DELETE:    MenuItem = { kind: 'action', id: '__delete',    label: 'Delete' };
+const BUILTIN_DUPLICATE: MenuItem = { kind: 'action', id: '__duplicate', label: 'Duplicate' };
 
 export class ContextMenuController {
   constructor(
@@ -112,7 +113,7 @@ export function builtinHostActions(entity: Entity): MenuItem[] {
   // Singleton Table is undeletable (PRD § Locking enforcement). Suppress
   // the Delete entry rather than relying on the runtime guard to throw.
   if (entity.hasComponent(TableComponent)) return [];
-  return [BUILTIN_DELETE];
+  return [BUILTIN_DUPLICATE, BUILTIN_DELETE];
 }
 
 function countLeafItems(items: MenuItem[]): number {
@@ -135,6 +136,7 @@ export interface MenuActionDeps {
   send:          (msg: ChannelMessage) => void;
   hostLocal: {
     delete:        (entityId: string) => void;
+    duplicate?:    (entityId: string) => void;
     drawFromDeck?: (deckId: string, count: number, callerSeat: SeatIndex | null) => void;
     shuffleDeck?:  (deckId: string, callerSeat: SeatIndex | null) => void;
     dealFromDeck?: (deckId: string, count: number, callerSeat: SeatIndex | null) => void;
@@ -153,6 +155,10 @@ export function dispatchMenuAction(
   // Built-in host-only action short-circuits straight to the host runtime.
   if (item.kind === 'action' && item.id === '__delete') {
     if (deps.isHost) deps.hostLocal.delete(entityId);
+    return;
+  }
+  if (item.kind === 'action' && item.id === '__duplicate') {
+    if (deps.isHost) deps.hostLocal.duplicate?.(entityId);
     return;
   }
 

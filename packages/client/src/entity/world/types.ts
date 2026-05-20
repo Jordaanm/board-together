@@ -81,6 +81,14 @@ export interface World {
   spawn(type: string, opts?: SpawnOptions): EntityHandle;
   despawn(id: string): void;
 
+  // Host-only — deep-clone an entity and its descendant tree. Every entity in
+  // the copy receives a fresh GUID; component-state strings matching a
+  // duplicated id (DeckComponent.cards, ZoneComponent.containedIds, etc.) are
+  // remapped through the same id table. The duplicate root lands as a
+  // top-level entity offset slightly from the original. Returns null when the
+  // entity is unknown or is the Table singleton.
+  duplicateEntity(id: string): EntityHandle | null;
+
   // Entity-level field write (name, tags, owner). Issue #1 of
   // issues--property-schema-refactor.md. Replicates via entity-patch.
   updateEntityField(id: string, key: string, value: unknown): void;
