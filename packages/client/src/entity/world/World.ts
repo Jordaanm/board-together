@@ -196,6 +196,11 @@ class WorldImpl implements World, HandleRouter {
         lookupSlug:    (slug) => assetService.lookupSlug(slug),
         listAssets:    (opts) => assetService.listAssets(opts),
         attachSticker: (parentId, opts) => this.attachStickerOnHost(parentId, opts),
+        bagOps: {
+          add:        (bagId, entityId) => this.bags?.addToBag(bagId, entityId) ?? false,
+          remove:     (bagId, entityId) => this.bags?.removeFromBag(bagId, entityId) ?? false,
+          pickRandom: (bagId) => this.bags?.pickRandomNoHold(bagId) ?? null,
+        },
       });
       this.installBeginContactHandler();
       // Boot the singleton Table entity. Guests receive it through the

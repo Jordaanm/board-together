@@ -12,6 +12,7 @@
 
 import { type EntityScene } from '../entity/EntityComponent';
 import { EntityFacade, type ScriptRunContext } from './EntityFacade';
+import { type BagOps } from './BagFacade';
 import { type AssetEntry, type AssetType } from '../assets/Manifest';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
 import { type StickerOpts } from '../entity/components/attachSticker';
@@ -46,6 +47,10 @@ export interface SceneFacadeOptions {
   // the TurnsApi then warns and no-ops on mutating methods, but still reads
   // through if a `getState` is wired against a `RoomStateClient`.
   turns?: TurnsBridge;
+  // Host-only bag operations backing `EntityFacade.bag`. World wires these
+  // against BagService. Absent on guests; BagFacade then warns and no-ops.
+  // Issue #4 of issues--bag.md.
+  bagOps?: BagOps;
 }
 
 // Read-only catalog surface exposed as `scene.assets`. Returns deeply frozen
@@ -100,6 +105,13 @@ export class SceneFacade {
     this.opts   = opts;
     this.assets = new AssetsApi(opts);
     this.turns  = new TurnsApi(opts.turns, (msg) => this.warn(msg));
+    // Thread bag ops + entity wrapping through the run context so
+    // EntityFacade.bag can reach them. Set unconditionally so a guest scope
+    // (opts.bagOps undefined) leaves ctx.bagOps undefined and the facade
+    // warn-and-no-ops; wrapEntity is always wired so contents/pickRandom
+    // hand back the same cached EntityFacade instances getObjectById serves.
+    if (opts.bagOps) ctx.bagOps = opts.bagOps;
+    ctx.wrapEntity = (id: string) => this.getObjectById(id);
   }
 
   getObjectById(id: string): EntityFacade | undefined {

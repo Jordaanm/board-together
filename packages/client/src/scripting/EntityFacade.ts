@@ -13,7 +13,9 @@ import { type Entity } from '../entity/Entity';
 import { type Listener } from '../entity/EntityEventBus';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { ValueComponent } from '../entity/components/ValueComponent';
+import { BagComponent } from '../entity/components/BagComponent';
 import { type ScriptErrorLog } from './ScriptErrorLog';
+import { BagFacade, type BagOps } from './BagFacade';
 
 export interface ReadOnlyComponentView {
   readonly state: Readonly<Record<string, unknown>>;
@@ -54,6 +56,15 @@ export interface ScriptRunContext {
   // a recording function so guest-side / unknown-slug warnings are
   // deterministically observable.
   warn?:         (message: string) => void;
+  // Host-only bag operations backing `EntityFacade.bag` (issue #4 of
+  // issues--bag.md). Absent on guests / unit tests; BagFacade methods then
+  // warn and no-op.
+  bagOps?:       BagOps;
+  // Wraps an entity id as the active SceneFacade's cached EntityFacade.
+  // SceneFacade injects its own `getObjectById` here in its constructor so
+  // child facades (BagFacade.contents, BagFacade.pickRandom) hand scripts
+  // the same EntityFacade instance the scene cache holds.
+  wrapEntity?:   (id: string) => EntityFacade | undefined;
 }
 
 export class EntityFacade {
@@ -73,6 +84,15 @@ export class EntityFacade {
   // Defensive copy — mutating the returned array does not affect the entity.
   get tags(): string[] {
     return [...this.entity_.tags];
+  }
+
+  // Returns a `BagFacade` when this entity carries a `BagComponent`, else
+  // `null`. The facade is constructed fresh on every access; scripts that
+  // hold a reference across many calls are unaffected — BagFacade itself
+  // is stateless beyond the entity + ctx references it captures.
+  get bag(): BagFacade | null {
+    if (!this.entity_.hasComponent(BagComponent)) return null;
+    return new BagFacade(this.entity_, this.ctx);
   }
 
   // Returns a frozen view of the component's `state`. No methods, no setState.

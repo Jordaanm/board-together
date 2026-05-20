@@ -12,6 +12,7 @@ import { type SeatIndex } from '../seats/SeatLayout';
 import { type HostReplicatorV2 } from './HostReplicatorV2';
 import { type PeelAndHoldResult } from './wire';
 import { BagComponent } from './components/BagComponent';
+import { DeckComponent } from './components/DeckComponent';
 import { TransformComponent } from './components/TransformComponent';
 import { PhysicsComponent } from './components/PhysicsComponent';
 import { MeshComponent } from './components/MeshComponent';
@@ -42,6 +43,95 @@ export class BagService {
   // null when the bag is unknown / has no BagComponent / is empty, or the
   // hold defensively fails. Caller is responsible for `canManipulate` gating.
   pickRandom(bagId: string, callerSeat: SeatIndex): PeelAndHoldResult | null {
+    const extracted = this.extractRandom(bagId);
+    if (!extracted) return null;
+    if (!this.host.tryHold(extracted.entity, callerSeat)) {
+      this.host.releaseHold(extracted.entity);
+      return null;
+    }
+    return { cardId: extracted.entity.id, pos: extracted.pos, rot: extracted.rot };
+  }
+
+  // Script entry: extract a uniform-random item but do NOT claim a hold for
+  // any seat. Returns the picked entity id, or null on empty / missing bag.
+  // Mirrors `pickRandom` minus the hold-claim step (scripts have no cursor).
+  pickRandomNoHold(bagId: string): string | null {
+    const extracted = this.extractRandom(bagId);
+    return extracted ? extracted.entity.id : null;
+  }
+
+  // Script entry: extract a specific item from a bag. Returns true on success,
+  // false when the bag is unknown / has no BagComponent / the entity isn't a
+  // member.
+  removeFromBag(bagId: string, entityId: string): boolean {
+    const bag = this.scene.getEntity(bagId);
+    if (!bag) return false;
+    const bagC = bag.getComponent(BagComponent);
+    if (!bagC) return false;
+    const idx = bagC.state.contents.indexOf(entityId);
+    if (idx < 0) return false;
+    const entity = this.scene.getEntity(entityId);
+    if (!entity) return false;
+    const { pos, rot } = this.extractPoseFor(bag, entity);
+    const nextContents = bagC.state.contents.slice();
+    nextContents.splice(idx, 1);
+    bagC.setState({ contents: nextContents });
+    this.releaseFromBag(entity, bag, pos, rot);
+    return true;
+  }
+
+  // Script entry: move an entity into a bag. Detaches the entity from any
+  // prior parent (deck.cards / bag.contents / entity.children) before
+  // absorbing. Returns false when the bag refuses (canAccept false), when
+  // the entity is already in the bag, or on missing inputs.
+  addToBag(bagId: string, entityId: string): boolean {
+    const bag = this.scene.getEntity(bagId);
+    if (!bag) return false;
+    const bagC = bag.getComponent(BagComponent);
+    if (!bagC) return false;
+    const entity = this.scene.getEntity(entityId);
+    if (!entity) return false;
+    if (entity === bag) return false;
+    if (bagC.state.contents.includes(entityId)) return false;
+    if (!bagC.canAccept(entity)) return false;
+
+    // Detach from any prior parent: update the parent's `children`, plus
+    // its specialized container slot (deck.cards / bag.contents) if present.
+    if (entity.parentId !== null) {
+      const prevParent = this.scene.getEntity(entity.parentId);
+      if (prevParent) {
+        prevParent.children = prevParent.children.filter((c) => c !== entityId);
+        this.replicator.enqueueEntityPatch(prevParent.id, { children: [...prevParent.children] });
+        const prevDeck = prevParent.getComponent(DeckComponent);
+        if (prevDeck && prevDeck.state.cards.includes(entityId)) {
+          prevDeck.setState({ cards: prevDeck.state.cards.filter((c) => c !== entityId) });
+        }
+        const prevBag = prevParent.getComponent(BagComponent);
+        if (prevBag && prevBag.state.contents.includes(entityId)) {
+          prevBag.setState({ contents: prevBag.state.contents.filter((c) => c !== entityId) });
+        }
+      }
+    }
+
+    // Attach to the new bag.
+    const nextChildren = [...bag.children, entityId];
+    bag.children = nextChildren;
+    this.replicator.enqueueEntityPatch(bag.id, { children: [...nextChildren] });
+    bagC.setState({ contents: [...bagC.state.contents, entityId] });
+    entity.parentId = bagId;
+    this.replicator.enqueueEntityPatch(entityId, { parentId: bagId });
+    if (!entity.isContained) {
+      entity.isContained = true;
+      for (const comp of entity.components.values()) comp.onIsContainedChanged(true);
+      this.replicator.enqueueEntityPatch(entityId, { isContained: true });
+    }
+    return true;
+  }
+
+  // Shared pick path: pop a uniform-random index, un-contain the entity at
+  // the bag's pose-derived lift, return the entity + pose. Does NOT claim a
+  // hold — callers layer that on if needed.
+  private extractRandom(bagId: string): { entity: Entity; pos: [number, number, number]; rot: [number, number, number, number] } | null {
     const bag = this.scene.getEntity(bagId);
     if (!bag) return null;
     const bagC = bag.getComponent(BagComponent);
@@ -53,20 +143,30 @@ export class BagService {
     const picked = this.scene.getEntity(pickedId);
     if (!picked) return null;
 
-    // Surface the picked entity just above the bag in world +Y. The bag's
-    // own mesh is yaw-only, so a world-axis lift is sufficient; we don't
-    // need the deck's local-+Y rotation gymnastics.
+    const { pos, rot } = this.extractPoseFor(bag, picked);
+    const nextContents = bagC.state.contents.slice();
+    nextContents.splice(idx, 1);
+    bagC.setState({ contents: nextContents });
+    this.releaseFromBag(picked, bag, pos, rot);
+    return { entity: picked, pos, rot };
+  }
+
+  // Returns the pose an extracted entity should be placed at: bag's center
+  // lifted along world +Y so the body doesn't overlap the bag's collider
+  // when re-entering the physics world.
+  private extractPoseFor(bag: Entity, picked: Entity): {
+    pos: [number, number, number];
+    rot: [number, number, number, number];
+  } {
     const bagTransform = bag.getComponent(TransformComponent);
-    if (!bagTransform) return null;
-    const bagMesh    = bag.getComponent(MeshComponent);
-    const pickedMesh = picked.getComponent(MeshComponent);
-    const bagHalfH    = (bagMesh?.state.height ?? 0)    * 0.5;
-    const pickedHalfH = (pickedMesh?.state.height ?? 0) * 0.5;
-    const lift = bagHalfH + pickedHalfH + LIFT_GAP;
+    const bagMesh      = bag.getComponent(MeshComponent);
+    const pickedMesh   = picked.getComponent(MeshComponent);
+    const bagPos       = bagTransform?.state.position ?? [0, 0, 0];
+    const bagHalfH     = (bagMesh?.state.height ?? 0)    * 0.5;
+    const pickedHalfH  = (pickedMesh?.state.height ?? 0) * 0.5;
+    const lift         = bagHalfH + pickedHalfH + LIFT_GAP;
     const pos: [number, number, number] = [
-      bagTransform.state.position[0],
-      bagTransform.state.position[1] + lift,
-      bagTransform.state.position[2],
+      bagPos[0], bagPos[1] + lift, bagPos[2],
     ];
     const pickedTransform = picked.getComponent(TransformComponent);
     const rot: [number, number, number, number] = pickedTransform
@@ -77,19 +177,7 @@ export class BagService {
           pickedTransform.state.rotation[3],
         ]
       : [0, 0, 0, 1];
-
-    // Remove from contents first so a concurrent guest call can't see the
-    // same index. Single-threaded JS makes this genuinely atomic.
-    const nextContents = bagC.state.contents.slice();
-    nextContents.splice(idx, 1);
-    bagC.setState({ contents: nextContents });
-    this.releaseFromBag(picked, bag, pos, rot);
-
-    if (!this.host.tryHold(picked, callerSeat)) {
-      this.host.releaseHold(picked);
-      return null;
-    }
-    return { cardId: pickedId, pos, rot };
+    return { pos, rot };
   }
 
   // Shared between pickRandom and (future) script remove: clear isContained

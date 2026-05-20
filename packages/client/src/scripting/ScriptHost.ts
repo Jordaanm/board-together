@@ -26,6 +26,7 @@ import { loadModule } from './Sandbox';
 import { Game } from './Game';
 import { SceneFacade } from './SceneFacade';
 import { type ScriptRunContext } from './EntityFacade';
+import { type BagOps } from './BagFacade';
 import { ScriptErrorLog } from './ScriptErrorLog';
 import { makeCapturingConsole, wrapOneShotSource, formatArg, type LogLine } from './ConsoleSandbox';
 import { type EntityScene } from '../entity/EntityComponent';
@@ -61,6 +62,9 @@ export interface ScriptHostOptions {
   // Host-only turn-tracker bridge backing `scene.turns`. Constructed by World
   // / Room wiring around the host's RoomStateManager.
   turns?: TurnsBridge;
+  // Host-only bag operations backing `EntityFacade.bag`. World wires these
+  // against BagService. Issue #4 of issues--bag.md.
+  bagOps?: BagOps;
 }
 
 export type RunResult =
@@ -92,6 +96,7 @@ export class ScriptHost {
   private readonly lookupSlug_:     ScriptHostOptions['lookupSlug'];
   private readonly listAssets_:     ScriptHostOptions['listAssets'];
   private readonly attachSticker_:  ScriptHostOptions['attachSticker'];
+  private readonly bagOps_:         ScriptHostOptions['bagOps'];
   private turns_:                   ScriptHostOptions['turns'];
   // Bounded ring buffer of script errors surfaced to the script panel
   // (issue #7). Hook errors, listener errors, AND startup-failure errors
@@ -116,6 +121,7 @@ export class ScriptHost {
     this.lookupSlug_    = opts.lookupSlug;
     this.listAssets_    = opts.listAssets;
     this.attachSticker_ = opts.attachSticker;
+    this.bagOps_        = opts.bagOps;
     this.turns_         = opts.turns;
   }
 
@@ -216,6 +222,7 @@ export class ScriptHost {
           listAssets:    this.listAssets_,
           attachSticker: this.attachSticker_,
           turns:         this.turns_,
+          bagOps:        this.bagOps_,
         })
       : {};
 
@@ -305,6 +312,7 @@ export class ScriptHost {
           listAssets:    this.listAssets_,
           attachSticker: this.attachSticker_,
           turns:         this.turns_,
+          bagOps:        this.bagOps_,
         })
       : {};
 
