@@ -13,9 +13,11 @@
 import { Manifest, type AssetEntry } from './Manifest';
 import skydomeDefaultUrl from './skydome.png';
 import tableDefaultUrl from './wood.jpg';
+import bagDefaultUrl from './bag.glb';
 
 export const DEFAULT_SKY_SLUG = 'base:sky/default';
 export const DEFAULT_TABLE_SLUG = 'base:table/default';
+export const DEFAULT_BAG_SLUG = 'base:bag/default';
 
 export const BASE_MANIFEST_ENTRIES: AssetEntry[] = [
   { slug: 'base:placeholder/image', name: 'Image placeholder', type: 'image', url: 'placeholder://image', preload: false },
@@ -23,6 +25,13 @@ export const BASE_MANIFEST_ENTRIES: AssetEntry[] = [
   { slug: 'base:placeholder/sound', name: 'Sound placeholder', type: 'sound', url: 'placeholder://sound', preload: false },
   { slug: DEFAULT_SKY_SLUG,         name: 'Default sky',       type: 'image', url: skydomeDefaultUrl,     preload: true  },
   { slug: DEFAULT_TABLE_SLUG,       name: 'Default table',     type: 'image', url: tableDefaultUrl,       preload: true  },
+  // Leather pouch — issue #5 of issues--bag.md. The GLB carries its own
+  // authored materials (diffuse colour + bake), and MeshComponent does not
+  // apply `textureRefs` to loaded GLTF models, so no separate diffuse-PNG
+  // entry is registered. GLB sits at ~640 KB — slightly over the 500 KB
+  // bundle guideline, accepted for v1 because no separate diffuse asset
+  // ships alongside.
+  { slug: DEFAULT_BAG_SLUG,         name: 'Default bag',       type: 'model', url: bagDefaultUrl,         preload: true  },
 ];
 
 export const PRIMITIVE_MANIFEST_ENTRIES: AssetEntry[] = [

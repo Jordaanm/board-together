@@ -17,12 +17,15 @@ beforeEach(() => {
 });
 
 describe('BagComponent — registration + spawn', () => {
-  test('bag spawnable spawns with default leather-brown cube mesh', () => {
+  test('bag spawnable spawns with empty contents + leather pouch mesh', () => {
     const bag = scene.spawn('bag', ctx);
     const bagC = bag.getComponent(BagComponent);
     expect(bagC).toBeDefined();
     expect(bagC!.state.contents).toEqual([]);
     expect(bagC!.state.acceptComponents).toBeUndefined();
+    const mesh = bag.components.get('mesh') as { state: { meshRef: string; applyTint: boolean } } | undefined;
+    expect(mesh?.state.meshRef).toBe('base:bag/default');
+    expect(mesh?.state.applyTint).toBe(false);
   });
 });
 

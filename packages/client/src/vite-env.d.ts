@@ -19,3 +19,10 @@ declare module '*?raw' {
   const content: string;
   export default content;
 }
+
+// Vite serves binary assets imported by URL; .glb is not in the default
+// client.d.ts list, so it's declared explicitly here.
+declare module '*.glb' {
+  const url: string;
+  export default url;
+}
