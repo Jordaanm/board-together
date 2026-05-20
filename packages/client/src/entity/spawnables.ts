@@ -13,6 +13,7 @@ import { DiceComponent } from './components/DiceComponent';
 import { FlatViewComponent } from './components/FlatViewComponent';
 import { CardComponent } from './components/CardComponent';
 import { DeckComponent } from './components/DeckComponent';
+import { BagComponent } from './components/BagComponent';
 import { ZoneComponent } from './components/ZoneComponent';
 import { SnapPointsComponent } from './components/SnapPointsComponent';
 import { TweenComponent } from './components/TweenComponent';
@@ -34,6 +35,7 @@ export function registerCorePrimitives(): void {
   if (!componentRegistry.has('tween'))        componentRegistry.register(TweenComponent);
   if (!componentRegistry.has('card'))      componentRegistry.register(CardComponent);
   if (!componentRegistry.has('deck'))      componentRegistry.register(DeckComponent);
+  if (!componentRegistry.has('bag'))       componentRegistry.register(BagComponent);
   if (!componentRegistry.has('zone'))         componentRegistry.register(ZoneComponent);
   if (!componentRegistry.has('snap-points'))  componentRegistry.register(SnapPointsComponent);
   if (!componentRegistry.has('hand'))      componentRegistry.register(HandComponent);
@@ -155,6 +157,20 @@ export function registerCorePrimitives(): void {
       { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false, yawOnly: true } },
       { typeId: 'tween',     state: {} },
       { typeId: 'deck',      state: { cards: [], category: '' } },
+    ],
+  });
+
+  if (!getSpawnable('bag')) registerSpawnable({
+    type:        'bag',
+    label:       'Bag',
+    category:    'Containers',
+    defaultTags: ['bag'],
+    components: [
+      { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
+      { typeId: 'mesh',      state: { meshRef: 'prim:cube', textureRefs: { default: '' }, color: '#6b4423', applyTint: true, width: 0.4, height: 0.3, depth: 0.4 } },
+      { typeId: 'physics',   state: { mass: 0.4, friction: 0.6, restitution: 0.2, isLocked: false, yawOnly: true } },
+      { typeId: 'tween',     state: {} },
+      { typeId: 'bag',       state: { contents: [] } },
     ],
   });
 
