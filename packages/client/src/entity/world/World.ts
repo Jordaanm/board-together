@@ -20,6 +20,7 @@ import { componentRegistry } from '../ComponentRegistry';
 import { HoldService } from '../HoldService';
 import { MergeService } from '../MergeService';
 import { DeckService } from '../DeckService';
+import { BagService } from '../BagService';
 import { HostInputDispatcher } from '../HostInputDispatcher';
 import { SceneHistoryService } from '../SceneHistoryService';
 import { GuestInputHandler } from '../../input/GuestInputHandler';
@@ -34,6 +35,7 @@ import { HandComponent } from '../components/HandComponent';
 import { TableComponent } from '../components/TableComponent';
 import { CardComponent } from '../components/CardComponent';
 import { DeckComponent } from '../components/DeckComponent';
+import { BagComponent } from '../components/BagComponent';
 import { registerCorePrimitives } from '../spawnables';
 import { getSpawnable } from '../SpawnableRegistry';
 import { defaultEntityName } from '../Entity';
@@ -109,6 +111,7 @@ class WorldImpl implements World, HandleRouter {
   private readonly hold:       HoldService | null;
   private readonly merge:      MergeService | null;
   private readonly decks:      DeckService | null;
+  private readonly bags:       BagService | null;
   private readonly hostInput:  HostInputDispatcher | null;
   private readonly guestInput: GuestInputHandler | null;
   private readonly history_:   SceneHistoryService | null;
@@ -170,8 +173,13 @@ class WorldImpl implements World, HandleRouter {
         tryHold:     (card, seat) => this.hold!.tryClaim(card, seat),
         releaseHold: (card) => this.hold!.release(card),
       });
+      this.bags       = new BagService(this.scene, this.replicator, {
+        tryHold:     (e, seat) => this.hold!.tryClaim(e, seat),
+        releaseHold: (e) => this.hold!.release(e),
+      });
       this.hostInput  = new HostInputDispatcher(this.hold, this.getPeerSeat, this.scene);
       this.hostInput.setDeckService(this.decks);
+      this.hostInput.setBagService(this.bags);
       this.guestInput = new GuestInputHandler(this.hold, this.getPeerSeat, this.scene);
       this.guestInput.setDeckService(this.decks);
       this.history_   = new SceneHistoryService(
@@ -199,6 +207,7 @@ class WorldImpl implements World, HandleRouter {
       this.hold       = null;
       this.merge      = null;
       this.decks      = null;
+      this.bags       = null;
       this.hostInput  = null;
       this.guestInput = null;
       this.history_   = null;
@@ -989,17 +998,21 @@ class WorldImpl implements World, HandleRouter {
   // the result in a resolved Promise. Guest: dispatch the request RPC,
   // register a one-shot resolver keyed by requestId, resolve when the
   // host's peel-and-hold-reply arrives.
-  peelAndHold(deckId: string, seat: SeatIndex): Promise<PeelAndHoldResult | null> {
+  peelAndHold(sourceId: string, seat: SeatIndex): Promise<PeelAndHoldResult | null> {
     if (this.role === 'host') {
-      const deck = this.scene.getEntity(deckId);
-      if (deck) this.history_?.push(`peel ${deck.name}`);
-      const result = this.decks?.peelTop(deckId, seat) ?? null;
+      const source = this.scene.getEntity(sourceId);
+      if (source?.hasComponent(BagComponent)) {
+        if (source) this.history_?.push(`pick from ${source.name}`);
+        return Promise.resolve(this.bags?.pickRandom(sourceId, seat) ?? null);
+      }
+      if (source) this.history_?.push(`peel ${source.name}`);
+      const result = this.decks?.peelTop(sourceId, seat) ?? null;
       return Promise.resolve(result);
     }
     const requestId = `peel-${this.nextPeelRequestId++}`;
     return new Promise<PeelAndHoldResult | null>((resolve) => {
       this.pendingPeelRequests.set(requestId, resolve);
-      const msg: PeelAndHoldRequest = { type: 'peel-and-hold', requestId, deckId };
+      const msg: PeelAndHoldRequest = { type: 'peel-and-hold', requestId, deckId: sourceId };
       this.transport.send(msg, { reliable: true });
     });
   }

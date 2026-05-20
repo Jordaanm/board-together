@@ -15,6 +15,7 @@ import { type SeatIndex } from '../seats/SeatLayout';
 import { canManipulate } from '../seats/OwnershipPolicy';
 import { type HoldService } from './HoldService';
 import { type DeckService } from './DeckService';
+import { type BagService } from './BagService';
 import { type SceneHistoryService } from './SceneHistoryService';
 import { type HoldClaim, type HoldRelease, type InvokeAction, type RequestUpdate, type ApplyImpulse, type PlayCardToTable, type ReorderHand, type TweenIntoHand, type DrawFromDeck, type ShuffleDeck, type DealFromDeck, type SpreadDeck, type PeelAndHoldRequest, type PeelAndHoldResult, type OpenSearchRequest, type OpenSearchReply, type CloseSearch, type ReorderDeck, type ExtractFromDeck } from './wire';
 import { type ActionContext } from './EntityComponent';
@@ -24,6 +25,7 @@ import { TweenComponent } from './components/TweenComponent';
 import { ZoneComponent } from './components/ZoneComponent';
 import { HandComponent } from './components/HandComponent';
 import { DeckComponent } from './components/DeckComponent';
+import { BagComponent } from './components/BagComponent';
 import { TransformComponent } from './components/TransformComponent';
 import { isLockedAgainst } from './components/deckLock';
 
@@ -32,6 +34,7 @@ const TWEEN_INTO_HAND_MS     = 250;
 
 export class HostInputDispatcher {
   private decks: DeckService | null = null;
+  private bags:  BagService | null = null;
   private history: SceneHistoryService | null = null;
 
   constructor(
@@ -44,6 +47,12 @@ export class HostInputDispatcher {
   // path is rejected when null.
   setDeckService(deck: DeckService): void {
     this.decks = deck;
+  }
+
+  // World wires this on host construction. Tests omit it; the bag pick-random
+  // path is rejected when null. Issue #3 of issues--bag.md.
+  setBagService(bag: BagService): void {
+    this.bags = bag;
   }
 
   // World wires this on host construction. Guest-initiated host mutators push
@@ -208,12 +217,18 @@ export class HostInputDispatcher {
   // id and pose (or null on any rejection). World.handleInboundHost wraps
   // the result in a `peel-and-hold-reply` to the requesting peer.
   handlePeelAndHold(peerId: string, msg: PeelAndHoldRequest): PeelAndHoldResult | null {
-    if (!this.decks) return null;
     const senderSeat = this.getPeerSeat(peerId);
     if (senderSeat === null) return null;
     const entity = this.scene.getEntity(msg.deckId);
     if (!entity) return null;
     if (!canManipulate({ peerSeat: senderSeat, isHost: false }, entity.owner)) return null;
+    if (entity.hasComponent(BagComponent)) {
+      if (!this.bags) return null;
+      const result = this.bags.pickRandom(msg.deckId, senderSeat);
+      if (result) this.push(`pick from ${entity.name}`);
+      return result;
+    }
+    if (!this.decks) return null;
     if (deckLockedAgainst(entity, senderSeat)) return null;
     const result = this.decks.peelTop(msg.deckId, senderSeat);
     if (result) this.push(`peel ${entity.name}`);

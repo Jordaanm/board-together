@@ -65,9 +65,14 @@ export class BagComponent extends EntityComponent<BagState> {
     return true;
   }
 
-  // Issue #3 will return a peel intent on short-press; for slice #1 both
-  // branches fall through to whole-entity carry.
-  onTryGrab(_isLongPress: boolean): GrabIntent | null { return null; }
+  // Short-press-drag on a non-empty bag returns a peel intent so the gesture
+  // dispatcher routes through BagService.pickRandom. Empty bag and long-press
+  // both fall through to whole-entity carry. Issue #3 of issues--bag.md.
+  onTryGrab(isLongPress: boolean): GrabIntent | null {
+    if (isLongPress) return null;
+    if (this.state.contents.length === 0) return null;
+    return { kind: 'peel', sourceId: this.entity.id };
+  }
 
   // True when `candidate` is `this.entity` itself or an ancestor of it via
   // parentId. Walks at most as deep as the scene's entity count to avoid an

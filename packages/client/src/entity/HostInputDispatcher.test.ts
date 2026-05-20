@@ -7,8 +7,10 @@ import { HostReplicatorV2, type ReplicatorPolicy } from './HostReplicatorV2';
 import { HoldService } from './HoldService';
 import { HostInputDispatcher } from './HostInputDispatcher';
 import { type DeckService } from './DeckService';
+import { type BagService } from './BagService';
 import { type PeelAndHoldResult } from './wire';
 import { type SeatIndex } from '../seats/SeatLayout';
+import { BagComponent } from './components/BagComponent';
 
 const POLICY: ReplicatorPolicy = {
   channelFor:  () => 'reliable',
@@ -313,5 +315,81 @@ describe('HostInputDispatcher.handlePeelAndHold — issue #3 of issues--deck-pee
     expect(result).toBeNull();
     // peelTop was called — the null comes from the service, not the gate.
     expect(peelCalls).toEqual([{ deckId: 'deck-1', seat: 1 }]);
+  });
+});
+
+describe('HostInputDispatcher.handlePeelAndHold — bag routing (issue #3 of issues--bag.md)', () => {
+  let bagPickCalls: Array<{ bagId: string; seat: SeatIndex }>;
+  let bagPickResult: PeelAndHoldResult | null;
+  let deckPeelCalls: Array<{ deckId: string; seat: SeatIndex }>;
+
+  function spawnBag(id: string, owner: SeatIndex | null = null): Entity {
+    const e = new Entity({ id, type: 'bag', name: id, owner });
+    const bag = new BagComponent();
+    bag.fromJSON({ contents: [] });
+    e.attachComponent(bag);
+    scene.add(e);
+    return e;
+  }
+
+  function stubBagService(): void {
+    bagPickCalls = [];
+    bagPickResult = { cardId: 'item-1', pos: [1, 2, 3], rot: [0, 0, 0, 1] };
+    const stub = {
+      pickRandom: (bagId: string, seat: SeatIndex) => {
+        bagPickCalls.push({ bagId, seat });
+        return bagPickResult;
+      },
+    } as unknown as BagService;
+    dispatcher.setBagService(stub);
+  }
+
+  function stubDeckServiceForRouting(): void {
+    deckPeelCalls = [];
+    const stub = {
+      peelTop: (deckId: string, seat: SeatIndex) => {
+        deckPeelCalls.push({ deckId, seat });
+        return null;
+      },
+    } as unknown as DeckService;
+    dispatcher.setDeckService(stub);
+  }
+
+  test('entity with BagComponent routes to BagService.pickRandom, not DeckService.peelTop', () => {
+    spawnBag('bag-1', 1);
+    PEERS.set('p1', 1);
+    stubBagService();
+    stubDeckServiceForRouting();
+
+    const result = dispatcher.handlePeelAndHold('p1', {
+      type: 'peel-and-hold', requestId: 'r1', deckId: 'bag-1',
+    });
+
+    expect(result).toEqual({ cardId: 'item-1', pos: [1, 2, 3], rot: [0, 0, 0, 1] });
+    expect(bagPickCalls).toEqual([{ bagId: 'bag-1', seat: 1 }]);
+    expect(deckPeelCalls).toEqual([]);
+  });
+
+  test('owned bag refuses pick from a non-owner seat', () => {
+    spawnBag('bag-1', 1);
+    PEERS.set('p2', 2);
+    stubBagService();
+
+    const result = dispatcher.handlePeelAndHold('p2', {
+      type: 'peel-and-hold', requestId: 'r2', deckId: 'bag-1',
+    });
+    expect(result).toBeNull();
+    expect(bagPickCalls).toEqual([]);
+  });
+
+  test('returns null when BagService is not wired', () => {
+    spawnBag('bag-1', 1);
+    PEERS.set('p1', 1);
+    // No setBagService call.
+
+    const result = dispatcher.handlePeelAndHold('p1', {
+      type: 'peel-and-hold', requestId: 'r3', deckId: 'bag-1',
+    });
+    expect(result).toBeNull();
   });
 });

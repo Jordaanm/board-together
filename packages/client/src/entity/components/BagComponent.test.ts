@@ -118,14 +118,29 @@ describe('BagComponent.canAccept', () => {
   });
 });
 
-describe('BagComponent.onTryGrab — slice #1 stub', () => {
-  test('short-press returns null (falls through to whole-entity carry)', () => {
+describe('BagComponent.onTryGrab', () => {
+  test('empty bag short-press returns null (falls through to whole-entity carry)', () => {
     const bag = scene.spawn('bag', ctx);
     expect(bag.getComponent(BagComponent)!.onTryGrab(false)).toBeNull();
   });
 
-  test('long-press returns null (falls through to whole-entity carry)', () => {
+  test('empty bag long-press returns null (falls through to whole-entity carry)', () => {
     const bag = scene.spawn('bag', ctx);
+    expect(bag.getComponent(BagComponent)!.onTryGrab(true)).toBeNull();
+  });
+
+  test('non-empty bag short-press returns peel intent with the bag id', () => {
+    const bag = scene.spawn('bag', ctx);
+    bag.getComponent(BagComponent)!.state.contents = ['die-1'];
+    expect(bag.getComponent(BagComponent)!.onTryGrab(false)).toEqual({
+      kind:     'peel',
+      sourceId: bag.id,
+    });
+  });
+
+  test('non-empty bag long-press returns null (whole-bag carry falls through)', () => {
+    const bag = scene.spawn('bag', ctx);
+    bag.getComponent(BagComponent)!.state.contents = ['die-1'];
     expect(bag.getComponent(BagComponent)!.onTryGrab(true)).toBeNull();
   });
 });
