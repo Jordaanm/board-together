@@ -44,7 +44,14 @@ const defaultImageLoader: ImageLoader = (url) => {
   return new Promise((resolve, reject) => {
     new THREE.TextureLoader().load(
       url,
-      (tex) => resolve(tex),
+      (tex) => {
+        // PNG/JPEG pixels are sRGB-encoded; three r155+ defaults loaded
+        // textures to LinearSRGBColorSpace which skips the sRGB→linear decode
+        // and renders ~washed-out. Tagging here covers every consumer that
+        // pipes a texture from AssetService into `material.map`.
+        tex.colorSpace = THREE.SRGBColorSpace;
+        resolve(tex);
+      },
       undefined,
       () => reject(new Error(`failed to load image: ${url}`)),
     );
@@ -91,6 +98,7 @@ export function getImagePlaceholder(): THREE.Texture {
   if (placeholderImage) return placeholderImage;
   const data = new Uint8Array([255, 0, 255, 255]);
   const tex  = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+  tex.colorSpace  = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   placeholderImage = tex;
   return tex;
