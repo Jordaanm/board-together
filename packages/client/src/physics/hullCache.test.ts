@@ -37,4 +37,23 @@ describe('hullCache — dedup per asset URL', () => {
     expect(result).toBeNull();
     expect(getHullForAsset('asset://empty')).toBeNull();
   });
+
+  test('cache key is the asset URL — _collision-driven vs merged source is opaque', () => {
+    // Two distinct roots: one uses a `_collision` child; the other merges
+    // its visual mesh. Both register under the same ref, but only the
+    // first computation actually populates the cache — the second is a
+    // no-op that returns the cached value by reference.
+    const withCollision = new THREE.Group();
+    withCollision.add(new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10)));
+    const coll = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    coll.name = '_collision';
+    withCollision.add(coll);
+
+    const visualOnly = new THREE.Group();
+    visualOnly.add(new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10)));
+
+    const first  = computeAndStoreHull('asset://chest', withCollision);
+    const second = computeAndStoreHull('asset://chest', visualOnly);
+    expect(second).toBe(first); // same key → cached entry returned, source irrelevant
+  });
 });

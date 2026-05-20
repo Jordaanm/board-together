@@ -35,6 +35,7 @@ import { type EditorToolItem } from '../editorTools';
 import { TransformComponent } from './TransformComponent';
 import { TweenComponent } from './TweenComponent';
 import { assetService } from '../../assets/AssetService';
+import { findCollisionNode } from '../../physics/glbAnalyzer';
 import {
   D20_VERTICES,
   D20_FACES,
@@ -60,6 +61,29 @@ export interface MeshState {
   width:       number;
   height:      number;
   depth:       number;
+}
+
+// Strip the `_collision` child from a loaded GLB clone before it joins the
+// visible scene, and warn when the asset author shipped a collider mesh
+// for a spawnable that doesn't opt into auto-hull. Exported for direct
+// unit testing — the MeshComponent integration is a one-liner over this.
+export function processCollisionConvention(
+  clone:       THREE.Object3D,
+  assetRef:    string,
+  entityType:  string,
+  entityId:    string,
+  physicsShape: string | undefined,
+): void {
+  const collisionInClone = findCollisionNode(clone);
+  if (!collisionInClone) return;
+  collisionInClone.parent?.remove(collisionInClone);
+  if (physicsShape !== 'auto-hull') {
+    console.warn(
+      `[MeshComponent] asset "${assetRef}" contains a _collision node but `
+      + `entity "${entityType}" (${entityId}) does not use `
+      + `physics.shape: 'auto-hull' — the collider mesh will be ignored`,
+    );
+  }
 }
 
 export class MeshComponent extends EntityComponent<MeshState> {
@@ -300,10 +324,15 @@ export class MeshComponent extends EntityComponent<MeshState> {
     // Non-primitive ref: subscribe through AssetService for an Object3D.
     // The listener fires immediately with a placeholder cube (pending) and
     // again once the GLTF resolves. Each transition swaps the group's child.
-    this.modelUnsub = assetService.subscribe(ref, 'model', (obj, _status) => {
+    this.modelUnsub = assetService.subscribe(ref, 'model', (obj, status) => {
       disposeGroup(this.group);
       while (this.group.children.length) this.group.remove(this.group.children[0]);
       const clone = obj.clone(true);
+      if (status === 'loaded') {
+        const physState = (this.entity.components.get('physics') as
+          { state?: { shape?: string } } | undefined)?.state;
+        processCollisionConvention(clone, ref, this.entity.type, this.entity.id, physState?.shape);
+      }
       this.group.add(clone);
     });
   }
