@@ -78,6 +78,12 @@ describe('BagComponent.canAccept', () => {
     expect(bag.getComponent(BagComponent)!.canAccept(table)).toBe(false);
   });
 
+  test('refuses a SnapPoints-bearing entity (zone-style)', () => {
+    const bag = scene.spawn('bag', ctx);
+    const snap = scene.spawn('snap-marker', ctx);
+    expect(bag.getComponent(BagComponent)!.canAccept(snap)).toBe(false);
+  });
+
   test('refuses an ancestor of the bag (cycle guard)', () => {
     const outer = scene.spawn('bag', ctx);
     const inner = scene.spawn('bag', ctx);

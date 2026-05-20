@@ -8,6 +8,7 @@ import { registerCorePrimitives } from './spawnables';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CardComponent } from './components/CardComponent';
 import { DeckComponent } from './components/DeckComponent';
+import { BagComponent } from './components/BagComponent';
 import { TransformComponent } from './components/TransformComponent';
 import { type Entity } from './Entity';
 
@@ -346,6 +347,131 @@ describe('MergeService.recheckMergeOverlaps', () => {
   test('no-op when entity has no contacts', () => {
     const a = spawnCard({ id: 'a', category: 'x' });
     expect(merge.recheckMergeOverlaps(a)).toBeNull();
+  });
+});
+
+describe('MergeService — bag absorb (issue #2 of issues--bag.md)', () => {
+  test('releasing a held die over a bag absorbs it (contents, parentId, isContained)', () => {
+    const bag = scene.spawn('bag', ctx, { id: 'bag' });
+    const die = scene.spawn('die', ctx, { id: 'die' });
+    merge.noteBeginContact(die, bag);
+    // Recheck after release: heldBy is null, contacts include bag.
+    const result = merge.recheckMergeOverlaps(die);
+    expect(result).toBe(bag);
+    expect(bag.getComponent(BagComponent)!.state.contents).toEqual(['die']);
+    expect(die.parentId).toBe('bag');
+    expect(die.isContained).toBe(true);
+    expect(bag.children).toContain('die');
+  });
+
+  test('free-floating physics contact (no recheck) does NOT absorb', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    merge.noteBeginContact(die, bag);
+    // Simulate the beginContact-only path (issue #2 says: free-floating
+    // contacts go through enqueueContact + canMerge, which has no bag rule).
+    merge.enqueueContact(die, bag);
+    merge.processQueued();
+    expect(die.isContained).toBe(false);
+    expect(bag.getComponent(BagComponent)!.state.contents).toEqual([]);
+  });
+
+  test('releasing a held bag onto one of its own descendants is refused', () => {
+    const outer = scene.spawn('bag', ctx, { id: 'outer' });
+    const inner = scene.spawn('bag', ctx, { id: 'inner' });
+    inner.parentId = 'outer';
+    outer.children = ['inner'];
+    outer.getComponent(BagComponent)!.state.contents = ['inner'];
+    // Try to drop outer onto inner — would create a cycle.
+    merge.noteBeginContact(outer, inner);
+    const result = merge.recheckMergeOverlaps(outer);
+    expect(result).toBeNull();
+    expect(outer.isContained).toBe(false);
+    expect(outer.parentId).toBeNull();
+  });
+
+  test('acceptComponents filter rejection leaves both entities untouched', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    bag.getComponent(BagComponent)!.state.acceptComponents = ['card'];
+    merge.noteBeginContact(die, bag);
+    expect(merge.recheckMergeOverlaps(die)).toBeNull();
+    expect(die.isContained).toBe(false);
+    expect(bag.getComponent(BagComponent)!.state.contents).toEqual([]);
+  });
+
+  test('hand-zone entity dropped over a bag is refused (Zone exclusion)', () => {
+    const bag = scene.spawn('bag', ctx);
+    const hand = scene.spawn('hand', ctx);
+    merge.noteBeginContact(hand, bag);
+    expect(merge.recheckMergeOverlaps(hand)).toBeNull();
+    expect(hand.isContained).toBe(false);
+  });
+
+  test('snap-marker dropped over a bag is refused (zone-style exclusion)', () => {
+    const bag = scene.spawn('bag', ctx);
+    const snap = scene.spawn('snap-marker', ctx);
+    merge.noteBeginContact(snap, bag);
+    expect(merge.recheckMergeOverlaps(snap)).toBeNull();
+    expect(snap.isContained).toBe(false);
+  });
+
+  test('releasing a held deck over a bag absorbs the deck intact', () => {
+    // Make a deck via card+card merge first.
+    const c1 = spawnCard({ id: 'c1', pos: [0, 0.5, 0], category: 't' });
+    const c2 = spawnCard({ id: 'c2', pos: [0, 0.7, 0], category: 't' });
+    const deck = merge.merge(c1, c2)!;
+    const bag = scene.spawn('bag', ctx, { id: 'bag' });
+
+    merge.noteBeginContact(deck, bag);
+    const result = merge.recheckMergeOverlaps(deck);
+    expect(result).toBe(bag);
+    // Deck is in the bag's contents.
+    expect(bag.getComponent(BagComponent)!.state.contents).toEqual([deck.id]);
+    expect(deck.parentId).toBe('bag');
+    expect(deck.isContained).toBe(true);
+    // Deck's own cards remain contained inside the deck, not the bag.
+    expect(deck.getComponent(DeckComponent)!.state.cards.sort()).toEqual(['c1', 'c2']);
+    expect(c1.parentId).toBe(deck.id);
+    expect(c2.parentId).toBe(deck.id);
+  });
+
+  test('releasing a held bag over another bag absorbs the inner bag whole', () => {
+    const outer = scene.spawn('bag', ctx, { id: 'outer' });
+    const inner = scene.spawn('bag', ctx, { id: 'inner' });
+    merge.noteBeginContact(inner, outer);
+    const result = merge.recheckMergeOverlaps(inner);
+    expect(result).toBe(outer);
+    expect(outer.getComponent(BagComponent)!.state.contents).toEqual(['inner']);
+    expect(inner.parentId).toBe('outer');
+    expect(inner.isContained).toBe(true);
+  });
+
+  test('emits an entity-patch + component-patch pair for the absorb', () => {
+    const bag = scene.spawn('bag', ctx, { id: 'bag' });
+    const die = scene.spawn('die', ctx, { id: 'die' });
+    replicator.flushReliable();  // clear prior patches from setup.
+    merge.noteBeginContact(die, bag);
+    merge.recheckMergeOverlaps(die);
+
+    const reliable = replicator.flushReliable();
+    const entityPatches: Array<{ entityId: string; partial: Record<string, unknown> }> = [];
+    const componentPatches: Array<{ entityId: string; typeId: string; partial: Record<string, unknown> }> = [];
+    for (const m of reliable) {
+      if (m.type === 'entity-patch') {
+        entityPatches.push({ entityId: m.entityId, partial: m.partial });
+      } else if (m.type === 'component-patches') {
+        for (const p of m.patches) {
+          componentPatches.push({ entityId: p.entityId, typeId: p.typeId, partial: p.partial });
+        }
+      }
+    }
+    expect(entityPatches.some(p => p.entityId === 'die' && p.partial.isContained === true)).toBe(true);
+    expect(entityPatches.some(p => p.entityId === 'die' && p.partial.parentId === 'bag')).toBe(true);
+    expect(componentPatches.some(p =>
+      p.entityId === 'bag' && p.typeId === 'bag' &&
+      Array.isArray(p.partial.contents) && (p.partial.contents as string[]).includes('die')
+    )).toBe(true);
   });
 });
 

@@ -13,6 +13,7 @@ import {
 import { type Entity } from '../Entity';
 import { ZoneComponent } from './ZoneComponent';
 import { TableComponent } from './TableComponent';
+import { SnapPointsComponent } from './SnapPointsComponent';
 
 export interface BagState {
   contents:          string[];
@@ -51,8 +52,9 @@ export class BagComponent extends EntityComponent<BagState> {
   // the optional acceptComponents whitelist when set.
   canAccept(entity: Entity): boolean {
     if (entity === this.entity) return false;
-    if (entity.hasComponent(ZoneComponent))  return false;
-    if (entity.hasComponent(TableComponent)) return false;
+    if (entity.hasComponent(ZoneComponent))       return false;
+    if (entity.hasComponent(TableComponent))      return false;
+    if (entity.hasComponent(SnapPointsComponent)) return false;
     if (this.isAncestor(entity)) return false;
     const filter = this.state.acceptComponents;
     if (filter && filter.length > 0) {

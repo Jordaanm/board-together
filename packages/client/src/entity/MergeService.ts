@@ -16,6 +16,7 @@ import { type SceneImpl } from './Scene';
 import { type HostReplicatorV2 } from './HostReplicatorV2';
 import { CardComponent } from './components/CardComponent';
 import { DeckComponent } from './components/DeckComponent';
+import { BagComponent } from './components/BagComponent';
 import { TransformComponent } from './components/TransformComponent';
 
 // Max XZ-plane distance (in world units) between two entity centers for them
@@ -60,6 +61,10 @@ export class MergeService {
   // Re-fires merge logic for any entity currently overlapping `entity`'s
   // physics body. Called by HoldService.release so a card released while
   // already touching a deck still merges. Issue #4 of issues--deck.md.
+  // Also services the bag-absorb rule (issue #2 of issues--bag.md): if any
+  // contact carries a BagComponent that accepts `entity`, absorb `entity` into
+  // it. The bag rule fires only through this path so free-floating physics
+  // contacts never trigger an absorb.
   recheckMergeOverlaps(entity: Entity): Entity | null {
     const set = this.contacts.get(entity.id);
     if (!set) return null;
@@ -69,8 +74,38 @@ export class MergeService {
       if (this.canMerge(entity, other)) {
         return this.merge(entity, other);
       }
+      if (this.canAbsorbIntoBag(entity, other)) {
+        return this.absorbIntoBag(entity, other);
+      }
     }
     return null;
+  }
+
+  // Gate for the bag rule. `other` must carry a BagComponent that accepts
+  // `entity`; both entities must be free (not held, not contained, not
+  // private-to-seat). Defensively excludes the same-entity case.
+  canAbsorbIntoBag(entity: Entity, other: Entity): boolean {
+    if (entity === other) return false;
+    if (entity.heldBy !== null || other.heldBy !== null) return false;
+    if (entity.privateToSeat !== null || other.privateToSeat !== null) return false;
+    if (entity.isContained || other.isContained) return false;
+    const bagC = other.getComponent(BagComponent);
+    if (!bagC) return false;
+    return bagC.canAccept(entity);
+  }
+
+  // Append `entity` to `bag`'s contents; flip the absorbed entity's
+  // parentId / isContained / bag.children. Mirrors the deck-merge emit
+  // pattern: a contiguous entity-patch + component-patch pair on the wire.
+  absorbIntoBag(entity: Entity, bag: Entity): Entity {
+    const bagC = bag.getComponent(BagComponent)!;
+    const nextChildren = [...bag.children, entity.id];
+    bag.children = nextChildren;
+    this.replicator.enqueueEntityPatch(bag.id, { children: [...nextChildren] });
+    bagC.setState({ contents: [...bagC.state.contents, entity.id] });
+    setEntityIsContained(entity, true,  this.replicator);
+    setEntityParentId   (entity, bag.id, this.replicator);
+    return bag;
   }
 
   // Host-only. Called by the World's beginContact handler. Defers the actual
