@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { assetService } from '../assets/AssetService';
-import { extractHullSource } from './glbAnalyzer';
+import { extractAuthoredHull, extractHullSource } from './glbAnalyzer';
 import { buildHull, HULL_FALLBACK, type HullData } from './hullBuilder';
 
 type CacheValue = HullData | null;
@@ -57,9 +57,19 @@ export function computeAndStoreHull(ref: string, root: THREE.Object3D): CacheVal
     entry = { status: 'pending', value: null, listeners: new Set() };
     cache.set(ref, entry);
   }
-  const points = extractHullSource(root);
-  const result = buildHull(points);
-  const value: CacheValue = result === HULL_FALLBACK ? null : result;
+  // Prefer an authored `_collision` mesh: use its triangles directly as
+  // the polyhedron faces (skipping ConvexHull). The author has chosen the
+  // collider shape and face count; trust it. Without `_collision`, run
+  // ConvexHull on the visual mesh and let the builder cap the face count.
+  const authored = extractAuthoredHull(root);
+  let value: CacheValue;
+  if (authored !== null) {
+    value = authored;
+  } else {
+    const points = extractHullSource(root);
+    const result = buildHull(points);
+    value = result === HULL_FALLBACK ? null : result;
+  }
   entry.value  = value;
   entry.status = 'ready';
   for (const l of entry.listeners) l(value);

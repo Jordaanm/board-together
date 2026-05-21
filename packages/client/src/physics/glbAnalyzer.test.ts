@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import * as THREE from 'three';
-import { extractHullSource, findCollisionNode } from './glbAnalyzer';
+import { extractAuthoredHull, extractHullSource, findCollisionNode } from './glbAnalyzer';
 import { buildHull, HULL_FALLBACK } from './hullBuilder';
 
 describe('glbAnalyzer — extractHullSource (slice #1: merge all meshes)', () => {
@@ -123,6 +123,53 @@ describe('glbAnalyzer — _collision child overrides merge-all', () => {
       expect(Math.abs(x)).toBeLessThanOrEqual(0.5 + 1e-6);
       expect(Math.abs(z)).toBeLessThanOrEqual(0.5 + 1e-6);
     }
+  });
+});
+
+describe('glbAnalyzer — extractAuthoredHull (direct triangle use)', () => {
+  test('returns null when no _collision node exists', () => {
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+    expect(extractAuthoredHull(root)).toBeNull();
+  });
+
+  test('returns vertices + triangle faces from the _collision mesh', () => {
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4)));   // ignored
+    const collider = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    collider.name = '_collision';
+    root.add(collider);
+
+    const authored = extractAuthoredHull(root);
+    if (authored === null) throw new Error('expected authored hull');
+    // Indexed BoxGeometry has 8 unique corners and 12 triangles. The
+    // analyzer dedupes by coordinate so the vertex table stays minimal.
+    expect(authored.vertices).toHaveLength(8);
+    expect(authored.faces).toHaveLength(12);
+    for (const tri of authored.faces) expect(tri).toHaveLength(3);
+  });
+
+  test('bakes the _collision node\'s world transform into the vertices', () => {
+    const root = new THREE.Group();
+    const collider = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    collider.name = '_collision';
+    collider.position.set(10, 0, 0);
+    root.add(collider);
+
+    const authored = extractAuthoredHull(root);
+    if (authored === null) throw new Error('expected authored hull');
+    for (const [x] of authored.vertices) {
+      expect(x).toBeGreaterThanOrEqual(9.5 - 1e-6);
+      expect(x).toBeLessThanOrEqual(10.5 + 1e-6);
+    }
+  });
+
+  test('returns null when _collision exists but has no triangles', () => {
+    const root = new THREE.Group();
+    const empty = new THREE.Group();
+    empty.name = '_collision';
+    root.add(empty);
+    expect(extractAuthoredHull(root)).toBeNull();
   });
 });
 

@@ -15,6 +15,7 @@ import { UIPanel } from '../components/UIPanel';
 import { HandPanel } from '../components/HandPanel';
 import { InspectDeckDialog } from '../components/InspectDeckDialog';
 import { PreferencesTrigger } from '../components/PreferencesTrigger';
+import { FpsCounter } from '../components/FpsCounter';
 import { load as loadPreferences } from '../preferences/storage';
 import { loadDisplayName } from '../identity/displayName';
 import { useDiscordAuth } from '../discord/DiscordAuthProvider';
@@ -84,7 +85,7 @@ export function Room({ roomId, isHost }: Props) {
   const location = useLocation();
   const joinPassword: string | null = (location.state as { password?: string } | null)?.password ?? null;
   const { profile, isSignedIn } = useDiscordAuth();
-  const { discordPresenceEnabled } = usePreferences();
+  const { discordPresenceEnabled, showFps } = usePreferences();
   const [handView, setHandView]         = useState<HandView | null>(null);
   const [lastLoaded, setLastLoaded]     = useState<LastLoaded | null>(null);
   const [historyService, setHistoryService] = useState<SceneHistoryService | null>(null);
@@ -831,6 +832,12 @@ export function Room({ roomId, isHost }: Props) {
             onEndTurn={() => endTurnRef.current()}
           />
         </UIPanel>
+
+        {showFps && (
+          <UIPanel anchor="top-right" order={-10}>
+            <FpsCounter />
+          </UIPanel>
+        )}
 
         <UIPanel anchor="top-right" order={0}>
           <PreferencesTrigger />

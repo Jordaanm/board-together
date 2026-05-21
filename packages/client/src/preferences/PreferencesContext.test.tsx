@@ -92,6 +92,7 @@ describe('PreferencesProvider / usePreferences', () => {
       version: 1, darkMode: 'light', rotateAmount: 90,
       hotkeys: { ...DEFAULT_HOTKEYS },
       discordPresenceEnabled: true,
+      showFps: false,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     const probe: Probe = { current: null };

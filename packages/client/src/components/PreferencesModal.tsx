@@ -230,6 +230,7 @@ export function PreferencesModal({ open, onOpenChange }: Props) {
   const {
     darkMode, setDarkMode, rotateAmount, setRotateAmount, hotkeys, setHotkey, reset,
     discordPresenceEnabled, setDiscordPresenceEnabled,
+    showFps, setShowFps,
   } = usePreferences();
   const { isSignedIn } = useDiscordAuth();
   const [hotkeysOpen, setHotkeysOpen] = useState(false);
@@ -306,6 +307,18 @@ export function PreferencesModal({ open, onOpenChange }: Props) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <div style={FIELD_LABEL}>Display</div>
+              <label style={TOGGLE_ROW}>
+                <span>Show FPS counter</span>
+                <input
+                  type="checkbox"
+                  checked={showFps}
+                  onChange={(e) => setShowFps(e.target.checked)}
+                />
+              </label>
             </div>
 
             {isSignedIn && (

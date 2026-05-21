@@ -78,6 +78,9 @@ export function load(): Preferences {
     discordPresenceEnabled: typeof obj.discordPresenceEnabled === 'boolean'
       ? obj.discordPresenceEnabled
       : DEFAULT_PREFERENCES.discordPresenceEnabled,
+    showFps: typeof obj.showFps === 'boolean'
+      ? obj.showFps
+      : DEFAULT_PREFERENCES.showFps,
   };
 }
 

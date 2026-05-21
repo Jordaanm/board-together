@@ -36,6 +36,7 @@ export interface Preferences {
   // Discord client while in a room. No-op when not signed in or the Discord
   // desktop client isn't running on this machine.
   discordPresenceEnabled: boolean;
+  showFps: boolean;
 }
 
 export const DARK_MODE_VALUES: readonly DarkMode[] = ['system', 'light', 'dark'];
@@ -55,4 +56,5 @@ export const DEFAULT_PREFERENCES: Preferences = {
   rotateAmount:           45,
   hotkeys:                { ...DEFAULT_HOTKEYS },
   discordPresenceEnabled: true,
+  showFps:                false,
 };

@@ -45,3 +45,63 @@ export function findCollisionNode(root: THREE.Object3D): THREE.Object3D | null {
   });
   return hit;
 }
+
+export interface AuthoredHull {
+  vertices: [number, number, number][];
+  faces:    number[][];
+}
+
+// Extracts authored triangles from a `_collision` child node and returns
+// them as polyhedron data ready for CANNON.ConvexPolyhedron — vertices in
+// model space, faces as triangle index triples. Returns null when no
+// `_collision` node exists, so the caller can fall back to ConvexHull on
+// the visual mesh. Assumes the authored mesh is convex (author's
+// responsibility); cannon's narrowphase treats it as such regardless.
+export function extractAuthoredHull(root: THREE.Object3D): AuthoredHull | null {
+  root.updateMatrixWorld(true);
+  const collision = findCollisionNode(root);
+  if (!collision) return null;
+
+  const vertexMap = new Map<string, number>();
+  const vertices: [number, number, number][] = [];
+  const faces:    number[][] = [];
+
+  const indexOf = (x: number, y: number, z: number): number => {
+    const key = `${x},${y},${z}`;
+    const hit = vertexMap.get(key);
+    if (hit !== undefined) return hit;
+    const idx = vertices.length;
+    vertices.push([x, y, z]);
+    vertexMap.set(key, idx);
+    return idx;
+  };
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  collision.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    const geom = mesh.geometry as THREE.BufferGeometry | undefined;
+    if (!geom || !geom.attributes) return;
+    const pos = geom.attributes.position as THREE.BufferAttribute | undefined;
+    if (!pos) return;
+    const index = geom.index;
+    const triCount = index ? index.count / 3 : pos.count / 3;
+    for (let t = 0; t < triCount; t++) {
+      const ia = index ? index.getX(t * 3)     : t * 3;
+      const ib = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const ic = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+      a.fromBufferAttribute(pos, ia).applyMatrix4(node.matrixWorld);
+      b.fromBufferAttribute(pos, ib).applyMatrix4(node.matrixWorld);
+      c.fromBufferAttribute(pos, ic).applyMatrix4(node.matrixWorld);
+      faces.push([
+        indexOf(a.x, a.y, a.z),
+        indexOf(b.x, b.y, b.z),
+        indexOf(c.x, c.y, c.z),
+      ]);
+    }
+  });
+
+  if (faces.length === 0) return null;
+  return { vertices, faces };
+}
