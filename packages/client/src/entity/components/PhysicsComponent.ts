@@ -14,6 +14,7 @@ import {
   type ActionDefinition,
 } from '../EntityComponent';
 import { type Entity } from '../Entity';
+import { type PropertyDef } from '../propertySchema';
 import { TransformComponent } from './TransformComponent';
 import { MeshComponent } from './MeshComponent';
 import { D20_VERTICES, D20_FACES, D20_BOUNDING_SPHERE_RADIUS } from '../../dice/d20';
@@ -47,7 +48,18 @@ const REST_VEL_THRESHOLD = 0.05;
 
 export class PhysicsComponent extends EntityComponent<PhysicsState> {
   static typeId   = 'physics';
+  static label    = 'Physics';
   static requires = ['transform', 'mesh'] as const;
+  // `shape` is intentionally omitted — onPropertiesChanged doesn't rebuild the
+  // collision body, so flipping it at runtime would leave the body and the
+  // declared shape out of sync.
+  static propertySchema: readonly PropertyDef<PhysicsState>[] = [
+    { key: 'mass',        label: 'Mass',        type: 'number',  min: 0,                hostOnly: true },
+    { key: 'friction',    label: 'Friction',    type: 'number',  min: 0, max: 1,        hostOnly: true },
+    { key: 'restitution', label: 'Restitution', type: 'number',  min: 0, max: 1,        hostOnly: true },
+    { key: 'isLocked',    label: 'Locked',      type: 'boolean',                        hostOnly: true },
+    { key: 'yawOnly',     label: 'Yaw-only',    type: 'boolean',                        hostOnly: true },
+  ];
 
   body!: CANNON.Body;
 
