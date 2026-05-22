@@ -1,11 +1,9 @@
-// Distance above the table surface that a held object is lifted to while
-// being dragged.
-export const CARRY_LIFT_HEIGHT = 0.3;
-
 // Vertical gap between the surface directly under the cursor and the bottom
 // of the dragged object's hitbox. Final hover Y is computed as
 // `surfaceY + HOVER_OFFSET + halfExtentY`. Issue #2 of issues--drag-refactor.md.
-export const HOVER_OFFSET = 0.1;
+// Also seeds the pick-up lift height at carry start so the initial lift
+// matches the steady-state drag hover.
+export const HOVER_OFFSET = 0.3;
 
 // Time constant (seconds) for the exponential Y-ease as the dragged entity
 // transitions between hover heights. Lower = snappier, higher = floatier.

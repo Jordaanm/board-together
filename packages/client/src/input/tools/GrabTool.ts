@@ -12,7 +12,6 @@ import { TransformComponent } from '../../entity/components/TransformComponent';
 import { PhysicsComponent } from '../../entity/components/PhysicsComponent';
 import { TableComponent } from '../../entity/components/TableComponent';
 import {
-  CARRY_LIFT_HEIGHT,
   GRAB_LONG_PRESS_MS,
   GRAB_MOVE_THRESHOLD_PX,
   HOVER_OFFSET,
@@ -350,8 +349,8 @@ export class GrabTool implements Tool {
       const cardHandle = ctx.world.get(this.pendingPeel.reply.cardId);
       if (seat !== null && cardHandle && cardHandle.heldBy() === seat) {
         const t      = cardHandle.get(TransformComponent);
-        const cardY  = t?.object3d.position.y ?? (this.pendingPeel.holdY - CARRY_LIFT_HEIGHT);
-        this.holdY              = cardY + CARRY_LIFT_HEIGHT;
+        const cardY  = t?.object3d.position.y ?? (this.pendingPeel.holdY - HOVER_OFFSET);
+        this.holdY              = cardY + HOVER_OFFSET;
         this.targetY            = this.holdY;
         this.lastValidY         = this.holdY;
         this.draggedHalfExtentY = this.readHalfExtentY(cardHandle);
@@ -509,9 +508,13 @@ export class GrabTool implements Tool {
     const meshZ  = t?.object3d.position.z ?? 0;
 
     this.draggedHalfExtentY = this.readHalfExtentY(p.handle);
-    // Seed the hover state at the entity's current pose so the first frame
-    // doesn't snap somewhere unexpected before the resolver runs.
-    this.holdY      = meshY + CARRY_LIFT_HEIGHT;
+    // Seed the hover state by lifting the entity HOVER_OFFSET above its
+    // current pose. An entity at rest sits with its bottom on a surface, so
+    // (meshY - halfExtentY) is that surface's Y; the steady-state hover puts
+    // the entity center at `surfaceY + HOVER_OFFSET + halfExtentY`, which
+    // simplifies to `meshY + HOVER_OFFSET`. Using the same delta here keeps
+    // the pick-up lift visually consistent with the per-frame drag hover.
+    this.holdY      = meshY + HOVER_OFFSET;
     this.targetY    = this.holdY;
     this.lastValidY = this.holdY;
     this.carryTarget.set(meshX, this.holdY, meshZ);
@@ -527,7 +530,7 @@ export class GrabTool implements Tool {
     const deckX  = deckT?.object3d.position.x ?? 0;
     const deckY  = deckT?.object3d.position.y ?? 0;
     const deckZ  = deckT?.object3d.position.z ?? 0;
-    const holdY  = deckY + CARRY_LIFT_HEIGHT;
+    const holdY  = deckY + HOVER_OFFSET;
 
     // Half-extent is filled in once the peeled card arrives — the deck's own
     // half-extent is the closest sensible default until then.
