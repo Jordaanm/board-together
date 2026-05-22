@@ -15,10 +15,14 @@ import {
   CARRY_LIFT_HEIGHT,
   GRAB_LONG_PRESS_MS,
   GRAB_MOVE_THRESHOLD_PX,
+  HOVER_OFFSET,
   THROW_VELOCITY_WINDOW_MS,
+  Y_LERP_TIME_CONSTANT_S,
 } from '../../config/dragConfig';
 import { type MoveGizmo, type GizmoAxis } from '../../scene/MoveGizmo';
 import { projectRayOntoAxis } from '../axisDrag';
+import { resolveDragTarget } from '../DragTargetResolver';
+import { MeshComponent } from '../../entity/components/MeshComponent';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
@@ -59,8 +63,6 @@ type CarryDrag = {
 type PendingPeel = {
   sourceId:      string;
   pointerId:     number;
-  holdOffsetX:   number;
-  holdOffsetZ:   number;
   holdY:         number;
   reply:         PeelAndHoldResult | null;
   replyReceived: boolean;
@@ -81,11 +83,21 @@ export class GrabTool implements Tool {
   private carry:        CarryDrag | null = null;
   private axisDrag:     AxisDrag  | null = null;
 
-  private holdOffsetX = 0;
-  private holdOffsetZ = 0;
+  // Current rendered Y of the held entity. Eases toward `targetY` with a
+  // ~Y_LERP_TIME_CONSTANT_S time constant in update().
   private holdY       = 0;
+  // Most recent resolver-derived target Y. X/Z follows cursor 1:1; only Y
+  // eases between hover heights. Issue #2 of issues--drag-refactor.md.
+  private targetY     = 0;
+  // Last valid hover Y from a bare-surface hit. When the cursor leaves the
+  // table the resolver projects onto this Y so the entity tracks cursor X/Z
+  // without snapping vertically. Initialised at carry start.
+  private lastValidY  = 0;
+  // Half of the dragged entity's mesh height. Cached at carry start so the
+  // resolver doesn't have to look it up every frame. Defaults to 0 when the
+  // entity has no MeshComponent (test fixtures, ungeometried entities).
+  private draggedHalfExtentY = 0;
 
-  private readonly carryPlane  = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly carryTarget = new THREE.Vector3();
   private readonly velHistory:  { pos: THREE.Vector3; t: number }[] = [];
 
@@ -224,10 +236,21 @@ export class GrabTool implements Tool {
     }
     if (!this.carry && !this.pendingPeel) return;
     ctx.raycaster.set(e.ray.origin, e.ray.direction);
-    const pt = this.castToCarryPlane(ctx.raycaster);
-    if (!pt) return;
-    this.carryTarget.set(pt.x + this.holdOffsetX, this.holdY, pt.z + this.holdOffsetZ);
-    this.velHistory.push({ pos: pt.clone(), t: e.timestamp });
+    const draggedId = this.carry?.handle.id ?? this.pendingPeel?.sourceId ?? null;
+    const result = resolveDragTarget({
+      raycaster:          ctx.raycaster,
+      candidateMeshes:    this.collectCandidateMeshes(ctx, draggedId),
+      draggedHalfExtentY: this.draggedHalfExtentY,
+      hoverOffset:        HOVER_OFFSET,
+      fallbackY:          this.lastValidY,
+    });
+    this.carryTarget.set(result.position.x, result.position.y, result.position.z);
+    this.targetY = result.position.y;
+    if (result.kind === 'bare') this.lastValidY = result.position.y;
+    this.velHistory.push({
+      pos: new THREE.Vector3(result.position.x, result.position.y, result.position.z),
+      t:   e.timestamp,
+    });
     if (this.velHistory.length > VELOCITY_SAMPLES) this.velHistory.shift();
   }
 
@@ -303,8 +326,10 @@ export class GrabTool implements Tool {
       if (seat !== null && cardHandle && cardHandle.heldBy() === seat) {
         const t      = cardHandle.get(TransformComponent);
         const cardY  = t?.object3d.position.y ?? (this.pendingPeel.holdY - CARRY_LIFT_HEIGHT);
-        this.holdY               = cardY + CARRY_LIFT_HEIGHT;
-        this.carryPlane.constant = -this.holdY;
+        this.holdY              = cardY + CARRY_LIFT_HEIGHT;
+        this.targetY            = this.holdY;
+        this.lastValidY         = this.holdY;
+        this.draggedHalfExtentY = this.readHalfExtentY(cardHandle);
         this.carry = { handle: cardHandle, active: true };
         this.pendingPeel = null;
       }
@@ -325,6 +350,10 @@ export class GrabTool implements Tool {
     }
 
     if (this.carry?.active) {
+      // Exponential ease toward the resolver's targetY with a fixed time
+      // constant; X/Z follows cursor 1:1.
+      const k = 1 - Math.exp(-_dt / Y_LERP_TIME_CONSTANT_S);
+      this.holdY += (this.targetY - this.holdY) * k;
       this.carry.handle.setPosition(this.carryTarget.x, this.holdY, this.carryTarget.z);
     }
 
@@ -390,9 +419,27 @@ export class GrabTool implements Tool {
     }
   }
 
-  private castToCarryPlane(raycaster: THREE.Raycaster): THREE.Vector3 | null {
-    const pt = new THREE.Vector3();
-    return raycaster.ray.intersectPlane(this.carryPlane, pt) ? pt : null;
+  // Gather raycast candidates for the drag resolver. Excludes the dragged
+  // entity itself (or the peel source — the soon-to-be-peeled card is part of
+  // the source deck) and any entity currently held by any seat. The Table is
+  // included — it's a valid hover surface.
+  private collectCandidateMeshes(ctx: ToolContext, draggedId: string | null): THREE.Object3D[] {
+    const meshes: THREE.Object3D[] = [];
+    ctx.world.forEach((h) => {
+      if (h.id === draggedId) return;
+      if (h.entity.heldBy !== null) return;
+      const t = h.get(TransformComponent);
+      if (t?.object3d) meshes.push(t.object3d);
+    });
+    return meshes;
+  }
+
+  // Half of the entity's mesh bounding height. Defaults to 0 for entities
+  // without a MeshComponent (test fixtures) so the resolver doesn't add an
+  // undefined gap. Real entities expose this through MeshComponent.halfExtents.
+  private readHalfExtentY(handle: EntityHandle): number {
+    const mesh = handle.get(MeshComponent);
+    return mesh?.halfExtents()[1] ?? 0;
   }
 
   // Promote a pending pointer down to a hold attempt. Sends the hold-claim
@@ -422,22 +469,17 @@ export class GrabTool implements Tool {
     this.velHistory.length = 0;
 
     const t      = p.handle.get(TransformComponent);
-    const meshY  = t?.object3d.position.y ?? 0;
     const meshX  = t?.object3d.position.x ?? 0;
+    const meshY  = t?.object3d.position.y ?? 0;
     const meshZ  = t?.object3d.position.z ?? 0;
-    this.holdY               = meshY + CARRY_LIFT_HEIGHT;
-    this.carryPlane.constant = -this.holdY;
 
-    const pt = this.castToCarryPlane(ctx.raycaster);
-    if (pt) {
-      this.holdOffsetX = meshX - pt.x;
-      this.holdOffsetZ = meshZ - pt.z;
-      this.carryTarget.set(pt.x + this.holdOffsetX, this.holdY, pt.z + this.holdOffsetZ);
-      this.velHistory.push({ pos: pt.clone(), t: performance.now() });
-    } else {
-      this.holdOffsetX = 0;
-      this.holdOffsetZ = 0;
-    }
+    this.draggedHalfExtentY = this.readHalfExtentY(p.handle);
+    // Seed the hover state at the entity's current pose so the first frame
+    // doesn't snap somewhere unexpected before the resolver runs.
+    this.holdY      = meshY + CARRY_LIFT_HEIGHT;
+    this.targetY    = this.holdY;
+    this.lastValidY = this.holdY;
+    this.carryTarget.set(meshX, this.holdY, meshZ);
   }
 
   // Commit to a peel-style grab: capture the carry plane / hold offset
@@ -451,26 +493,20 @@ export class GrabTool implements Tool {
     const deckY  = deckT?.object3d.position.y ?? 0;
     const deckZ  = deckT?.object3d.position.z ?? 0;
     const holdY  = deckY + CARRY_LIFT_HEIGHT;
-    this.holdY               = holdY;
-    this.carryPlane.constant = -holdY;
-    this.velHistory.length   = 0;
 
-    let holdOffsetX = 0;
-    let holdOffsetZ = 0;
-    const pt = this.castToCarryPlane(ctx.raycaster);
-    if (pt) {
-      holdOffsetX = deckX - pt.x;
-      holdOffsetZ = deckZ - pt.z;
-      this.carryTarget.set(pt.x + holdOffsetX, holdY, pt.z + holdOffsetZ);
-      this.velHistory.push({ pos: pt.clone(), t: performance.now() });
-    }
-    this.holdOffsetX = holdOffsetX;
-    this.holdOffsetZ = holdOffsetZ;
+    // Half-extent is filled in once the peeled card arrives — the deck's own
+    // half-extent is the closest sensible default until then.
+    this.draggedHalfExtentY = this.readHalfExtentY(p.handle);
+    this.holdY      = holdY;
+    this.targetY    = holdY;
+    this.lastValidY = holdY;
+    this.carryTarget.set(deckX, holdY, deckZ);
+    this.velHistory.length = 0;
 
     const peel: PendingPeel = {
       sourceId,
       pointerId:     p.pointerId,
-      holdOffsetX, holdOffsetZ, holdY,
+      holdY,
       reply:         null,
       replyReceived: false,
       canceled:      false,
