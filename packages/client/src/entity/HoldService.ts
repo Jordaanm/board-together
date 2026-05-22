@@ -30,6 +30,10 @@ export interface ReleaseVelocity {
 export class HoldService {
   // Cache the body's pre-claim type so we restore it (DYNAMIC/STATIC) on release.
   private priorBodyType = new Map<string, CANNON.BodyType>();
+  // Cache the body's pre-claim collisionResponse. Held bodies become sensors
+  // (collisionResponse=false) so dragging never pushes other entities; the
+  // prior value is restored on release. Issue #1 of issues--drag-refactor.md.
+  private priorCollisionResponse = new Map<string, boolean>();
   private mergeService: MergeService | null = null;
 
   constructor(
@@ -56,7 +60,9 @@ export class HoldService {
     const body = entity.getComponent(PhysicsComponent)?.body;
     if (body) {
       this.priorBodyType.set(entity.id, body.type);
+      this.priorCollisionResponse.set(entity.id, body.collisionResponse);
       body.type = CANNON.Body.KINEMATIC;
+      body.collisionResponse = false;
       body.velocity.setZero();
       body.angularVelocity.setZero();
       body.wakeUp();
@@ -76,6 +82,9 @@ export class HoldService {
       const prior = this.priorBodyType.get(entity.id) ?? CANNON.Body.DYNAMIC;
       body.type = prior;
       this.priorBodyType.delete(entity.id);
+      const priorResponse = this.priorCollisionResponse.get(entity.id);
+      body.collisionResponse = priorResponse ?? true;
+      this.priorCollisionResponse.delete(entity.id);
       if (snap) {
         // Snap hit: zero velocity and skip the throw entirely. Position is
         // applied below via the TransformComponent setState so guests see the
@@ -125,6 +134,7 @@ export class HoldService {
   // hold-release wire chatter would be redundant.
   clearAllHoldState(): void {
     this.priorBodyType.clear();
+    this.priorCollisionResponse.clear();
   }
 
   // Zone-entry suppression placeholder (PRD-2 reads this when wiring zones).

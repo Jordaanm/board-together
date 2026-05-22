@@ -96,6 +96,13 @@ describe('HoldService.tryClaim', () => {
     expect(phys.body.velocity.length()).toBe(0);
     expect(phys.body.angularVelocity.length()).toBe(0);
   });
+
+  test('sets sensor flag (collisionResponse=false) on claim', () => {
+    const { entity, phys } = spawnPhysical('a');
+    expect(phys.body.collisionResponse).toBe(true);
+    svc.tryClaim(entity, 0);
+    expect(phys.body.collisionResponse).toBe(false);
+  });
 });
 
 describe('HoldService.release', () => {
@@ -134,6 +141,22 @@ describe('HoldService.release', () => {
     svc.release(entity);
     expect(entity.heldBy).toBeNull();
     expect(r.flushReliable()).toEqual([]);
+  });
+
+  test('restores prior collisionResponse on release', () => {
+    const { entity, phys } = spawnPhysical('a');
+    svc.tryClaim(entity, 0);
+    expect(phys.body.collisionResponse).toBe(false);
+    svc.release(entity);
+    expect(phys.body.collisionResponse).toBe(true);
+  });
+
+  test('restores prior collisionResponse even when it was false before claim', () => {
+    const { entity, phys } = spawnPhysical('a');
+    phys.body.collisionResponse = false;
+    svc.tryClaim(entity, 0);
+    svc.release(entity);
+    expect(phys.body.collisionResponse).toBe(false);
   });
 });
 
