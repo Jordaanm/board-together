@@ -80,7 +80,7 @@ export function registerCorePrimitives(): void {
     defaultTags: ['die'],
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
-      { typeId: 'mesh',      state: { meshRef: 'prim:d6', textureRefs: { default: '' }, color: '#fafafa', applyTint: true, width: 0.7, height: 0.7, depth: 0.7 } },
+      { typeId: 'mesh',      state: { meshRef: 'prim:d6', textureRefs: { default: '' }, color: '#fafafa', applyTint: true, width: 0.35, height: 0.35, depth: 0.35 } },
       { typeId: 'physics',   state: { mass: 0.2, friction: 0.5, restitution: 0.5, isLocked: false, yawOnly: false } },
       { typeId: 'value',     state: { value: '6', isNumeric: true } },
       { typeId: 'dice',      state: { maxValue: 6, faceMap: D6_FACE_MAP } },
@@ -95,7 +95,7 @@ export function registerCorePrimitives(): void {
     defaultTags: ['die'],
     components: [
       { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
-      { typeId: 'mesh',      state: { meshRef: 'prim:d20', textureRefs: { default: '' }, color: '#fafafa', applyTint: true, width: 1.4, height: 1.4, depth: 1.4 } },
+      { typeId: 'mesh',      state: { meshRef: 'prim:d20', textureRefs: { default: '' }, color: '#fafafa', applyTint: true, width: 0.7, height: 0.7, depth: 0.7 } },
       { typeId: 'physics',   state: { mass: 0.25, friction: 0.5, restitution: 0.5, isLocked: false, yawOnly: false } },
       { typeId: 'value',     state: { value: '20', isNumeric: true } },
       { typeId: 'dice',      state: { maxValue: 20, faceMap: D20_FACE_MAP } },
