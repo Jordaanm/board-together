@@ -11,6 +11,7 @@ import { FlickTool } from './FlickTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { FlickArrowAttachment } from './FlickArrowAttachment';
 import { HitboxAttachment } from './HitboxAttachment';
+import { DropPreviewGhost } from './DropPreviewGhost';
 import { type Tool } from './types';
 
 export { ToolDispatcher, type ToolDispatcherDeps } from './ToolDispatcher';
@@ -20,6 +21,7 @@ export { FlickTool } from './FlickTool';
 export { AxisGizmoAttachment } from './AxisGizmoAttachment';
 export { FlickArrowAttachment } from './FlickArrowAttachment';
 export { HitboxAttachment } from './HitboxAttachment';
+export { DropPreviewGhost } from './DropPreviewGhost';
 export type { Tool, ToolContext, ToolPointerEvent, ToolAttachment } from './types';
 
 export interface ToolFactoryDeps {
@@ -45,6 +47,7 @@ export const TOOL_CATALOGUE: ToolFactory[] = [
       deps.moveGizmo,
       new AxisGizmoAttachment(deps.scene, deps.moveGizmo),
       new HitboxAttachment(deps.scene),
+      new DropPreviewGhost(deps.scene),
       deps.onSelect,
     ),
   },

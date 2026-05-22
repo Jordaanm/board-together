@@ -26,6 +26,7 @@ import { MeshComponent } from '../../entity/components/MeshComponent';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
+import { type DropPreviewGhost } from './DropPreviewGhost';
 import { findDropTargetAt } from '../dropTargetRegistry';
 import { type PeelAndHoldResult } from '../../entity/wire';
 import { type SeatIndex } from '../../seats/SeatLayout';
@@ -97,6 +98,10 @@ export class GrabTool implements Tool {
   // resolver doesn't have to look it up every frame. Defaults to 0 when the
   // entity has no MeshComponent (test fixtures, ungeometried entities).
   private draggedHalfExtentY = 0;
+  // Most recent surfaceY from the resolver — `null` when the resolver
+  // returned `none` (off-table fallback). Feeds DropPreviewGhost each frame
+  // so the ghost hides over the fallback plane.
+  private currentSurfaceY: number | null = null;
 
   private readonly carryTarget = new THREE.Vector3();
   private readonly velHistory:  { pos: THREE.Vector3; t: number }[] = [];
@@ -108,6 +113,7 @@ export class GrabTool implements Tool {
     private readonly gizmo:             MoveGizmo,
     private readonly attachment:        AxisGizmoAttachment,
     private readonly hitboxAttachment:  HitboxAttachment,
+    private readonly dropPreviewGhost:  DropPreviewGhost,
     private readonly onSelect:          (id: string | null) => void,
   ) {}
 
@@ -246,7 +252,12 @@ export class GrabTool implements Tool {
     });
     this.carryTarget.set(result.position.x, result.position.y, result.position.z);
     this.targetY = result.position.y;
-    if (result.kind === 'bare') this.lastValidY = result.position.y;
+    if (result.kind === 'bare') {
+      this.lastValidY      = result.position.y;
+      this.currentSurfaceY = result.surfaceY;
+    } else {
+      this.currentSurfaceY = null;
+    }
     this.velHistory.push({
       pos: new THREE.Vector3(result.position.x, result.position.y, result.position.z),
       t:   e.timestamp,
@@ -267,6 +278,7 @@ export class GrabTool implements Tool {
       const handle = this.carry.handle;
       const wasActive = this.carry.active;
       this.carry = null;
+      this.dropPreviewGhost.detach();
       if (wasActive) {
         // Drop target under the cursor wins over throw velocity. Releases
         // the hold (no throw) and tweens the entity into the destination
@@ -339,6 +351,10 @@ export class GrabTool implements Tool {
       const seat = ctx.getSelfSeat();
       if (seat !== null && this.carry.handle.heldBy() === seat) {
         this.carry.active = true;
+        // First frame as an active carry — bring up the ghost preview. The
+        // hold-claim echo may have arrived before any onMove ran, so attach
+        // here rather than in beginCarry.
+        if (!this.dropPreviewGhost.isAttached()) this.dropPreviewGhost.attach(this.carry.handle);
       }
     }
 
@@ -355,6 +371,7 @@ export class GrabTool implements Tool {
       const k = 1 - Math.exp(-_dt / Y_LERP_TIME_CONSTANT_S);
       this.holdY += (this.targetY - this.holdY) * k;
       this.carry.handle.setPosition(this.carryTarget.x, this.holdY, this.carryTarget.z);
+      this.dropPreviewGhost.update(this.currentSurfaceY);
     }
 
     if (this.axisDrag?.active) {
@@ -400,6 +417,7 @@ export class GrabTool implements Tool {
     if (this.pendingPeel) {
       this.cleanupPendingPeel(ctx);
     }
+    this.dropPreviewGhost.detach();
     this.pending      = null;
     this.pendingEmpty = null;
     this.velHistory.length = 0;

@@ -11,6 +11,10 @@ export const HOVER_OFFSET = 0.1;
 // transitions between hover heights. Lower = snappier, higher = floatier.
 export const Y_LERP_TIME_CONSTANT_S = 0.1;
 
+// Alpha for the local-only drop-preview ghost mesh shown beneath the
+// dragged object. Issue #3 of issues--drag-refactor.md.
+export const GHOST_ALPHA = 0.3;
+
 // Throw velocity is computed from cursor samples within this many ms of
 // release. A stationary gap longer than this drops the object straight down.
 export const THROW_VELOCITY_WINDOW_MS = 80;

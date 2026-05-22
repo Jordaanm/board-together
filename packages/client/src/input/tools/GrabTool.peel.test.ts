@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { HitboxAttachment } from './HitboxAttachment';
+import { DropPreviewGhost } from './DropPreviewGhost';
 import { MoveGizmo } from '../../scene/MoveGizmo';
 import { Entity } from '../../entity/Entity';
 import { EntityComponent, type GrabIntent } from '../../entity/EntityComponent';
@@ -183,7 +184,8 @@ beforeEach(() => {
   const moveGizmo  = new MoveGizmo();
   const attachment = new AxisGizmoAttachment(scene, moveGizmo);
   const hitboxAttachment = new HitboxAttachment(scene);
-  tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, () => {});
+  const dropPreviewGhost = new DropPreviewGhost(scene);
+  tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, dropPreviewGhost, () => {});
 });
 
 afterEach(() => {
