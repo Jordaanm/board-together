@@ -16,6 +16,7 @@ import {
   GRAB_LONG_PRESS_MS,
   GRAB_MOVE_THRESHOLD_PX,
   HOVER_OFFSET,
+  THROW_VELOCITY_THRESHOLD,
   THROW_VELOCITY_WINDOW_MS,
   Y_LERP_TIME_CONSTANT_S,
 } from '../../config/dragConfig';
@@ -102,6 +103,11 @@ export class GrabTool implements Tool {
   // returned `none` (off-table fallback). Feeds DropPreviewGhost each frame
   // so the ghost hides over the fallback plane.
   private currentSurfaceY: number | null = null;
+  // Most recent cursor speed (world units/sec), sampled from velHistory the
+  // same way `computeThrowVelocity` samples for release. Gates the ghost
+  // visibility (and at release, the throw vs. drop branch). Issue #4 of
+  // issues--drag-refactor.md.
+  private cursorSpeed = 0;
 
   private readonly carryTarget = new THREE.Vector3();
   private readonly velHistory:  { pos: THREE.Vector3; t: number }[] = [];
@@ -263,6 +269,7 @@ export class GrabTool implements Tool {
       t:   e.timestamp,
     });
     if (this.velHistory.length > VELOCITY_SAMPLES) this.velHistory.shift();
+    this.cursorSpeed = this.computeThrowVelocity(e.timestamp).length();
   }
 
   onRelease(e: ToolPointerEvent, ctx: ToolContext): void {
@@ -291,7 +298,13 @@ export class GrabTool implements Tool {
           return;
         }
         const vel = this.computeThrowVelocity(e.timestamp);
-        handle.release({ vx: vel.x, vy: 0, vz: vel.z });
+        if (vel.length() >= THROW_VELOCITY_THRESHOLD) {
+          handle.release({ vx: vel.x, vy: 0, vz: vel.z });
+        } else {
+          // Slow release: no throw. Body returns to DYNAMIC (via HoldService)
+          // and gravity drops the entity from its hover Y.
+          handle.release();
+        }
       } else {
         // Hold-claim never confirmed — defensive release (idempotent on host).
         handle.release();
@@ -371,7 +384,10 @@ export class GrabTool implements Tool {
       const k = 1 - Math.exp(-_dt / Y_LERP_TIME_CONSTANT_S);
       this.holdY += (this.targetY - this.holdY) * k;
       this.carry.handle.setPosition(this.carryTarget.x, this.holdY, this.carryTarget.z);
-      this.dropPreviewGhost.update(this.currentSurfaceY);
+      // Ghost hidden while the cursor is moving fast enough that release
+      // would throw — only useful as a placement hint during slow drags.
+      const ghostY = this.cursorSpeed < THROW_VELOCITY_THRESHOLD ? this.currentSurfaceY : null;
+      this.dropPreviewGhost.update(ghostY);
     }
 
     if (this.axisDrag?.active) {
@@ -485,6 +501,7 @@ export class GrabTool implements Tool {
 
     this.carry = { handle: p.handle, active: false };
     this.velHistory.length = 0;
+    this.cursorSpeed = 0;
 
     const t      = p.handle.get(TransformComponent);
     const meshX  = t?.object3d.position.x ?? 0;
@@ -520,6 +537,7 @@ export class GrabTool implements Tool {
     this.lastValidY = holdY;
     this.carryTarget.set(deckX, holdY, deckZ);
     this.velHistory.length = 0;
+    this.cursorSpeed = 0;
 
     const peel: PendingPeel = {
       sourceId,

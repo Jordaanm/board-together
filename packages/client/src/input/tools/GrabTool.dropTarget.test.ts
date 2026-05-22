@@ -142,11 +142,21 @@ function performCarry(opts: {
   releaseClientX:   number;
   releaseClientY:   number;
   releaseTimestamp: number;
+  // Inject a fast cursor sweep within the throw-velocity window before
+  // release so the release crosses THROW_VELOCITY_THRESHOLD and the
+  // throw-with-velocity branch fires. Default: slow release (drop, no
+  // throw).
+  fastRelease?:     boolean;
 }) {
-  // Press, drag past 5px to enter carry, then release.
   tool.onPress(pointerEvent({ timestamp: 0 }), ctx);
   tool.onMove (pointerEvent({ timestamp: 50, clientX: 100, clientY: 100, worldX: 1 }), ctx);
   tool.update(0.016, ctx);  // flips carry.active true
+  if (opts.fastRelease) {
+    // Two close samples with a large XZ delta — 4 units in 40ms = 100 u/s,
+    // well above the 2 u/s threshold.
+    tool.onMove(pointerEvent({ timestamp: opts.releaseTimestamp - 50, clientX: 110, clientY: 100, worldX: 1 }), ctx);
+    tool.onMove(pointerEvent({ timestamp: opts.releaseTimestamp - 10, clientX: 200, clientY: 100, worldX: 5 }), ctx);
+  }
   tool.onRelease(pointerEvent({
     clientX: opts.releaseClientX, clientY: opts.releaseClientY, timestamp: opts.releaseTimestamp,
   }), ctx);
@@ -166,26 +176,36 @@ describe('GrabTool — release over a registered hand-panel drop target', () => 
     expect(handle.releases[0]).toEqual({}); // released without velocity
   });
 
-  test('releasing away from any drop target uses throw-velocity release', () => {
+  test('fast release away from any drop target uses throw-velocity release', () => {
+    document.elementFromPoint = (() => null) as Document['elementFromPoint'];
+
+    performCarry({ releaseClientX: 700, releaseClientY: 700, releaseTimestamp: 200, fastRelease: true });
+
+    expect(tweenCalls).toHaveLength(0);
+    expect(handle.releases).toHaveLength(1);
+    // Throw release carries velocity fields.
+    expect(handle.releases[0]).toHaveProperty('vx');
+    expect(handle.releases[0]).toHaveProperty('vy');
+    expect(handle.releases[0]).toHaveProperty('vz');
+  });
+
+  test('slow release away from any drop target drops with no throw velocity', () => {
     document.elementFromPoint = (() => null) as Document['elementFromPoint'];
 
     performCarry({ releaseClientX: 700, releaseClientY: 700, releaseTimestamp: 200 });
 
     expect(tweenCalls).toHaveLength(0);
     expect(handle.releases).toHaveLength(1);
-    // Throw release carries velocity fields (may be 0, but the object shape
-    // includes vx / vy / vz unlike the no-velocity drop case).
-    expect(handle.releases[0]).toHaveProperty('vx');
-    expect(handle.releases[0]).toHaveProperty('vy');
-    expect(handle.releases[0]).toHaveProperty('vz');
+    // Slow release: gravity-drop path, no velocity object.
+    expect(handle.releases[0]).toEqual({});
   });
 
-  test('releasing over an unregistered element uses throw-velocity release', () => {
+  test('fast release over an unregistered element uses throw-velocity release', () => {
     const stranger = document.createElement('div');
     document.body.appendChild(stranger);
     document.elementFromPoint = (() => stranger) as Document['elementFromPoint'];
 
-    performCarry({ releaseClientX: 50, releaseClientY: 60, releaseTimestamp: 200 });
+    performCarry({ releaseClientX: 50, releaseClientY: 60, releaseTimestamp: 200, fastRelease: true });
 
     expect(tweenCalls).toHaveLength(0);
     expect(handle.releases).toHaveLength(1);

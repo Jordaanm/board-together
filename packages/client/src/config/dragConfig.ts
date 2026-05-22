@@ -19,6 +19,14 @@ export const GHOST_ALPHA = 0.3;
 // release. A stationary gap longer than this drops the object straight down.
 export const THROW_VELOCITY_WINDOW_MS = 80;
 
+// Cursor speed (world units/sec) at release that switches between
+// "throw velocity applied" and "DYNAMIC drop-from-hover". Above the
+// threshold the existing flick behaviour fires; at or below, the body goes
+// DYNAMIC with zero velocity and gravity drops it. Same threshold gates the
+// drop-preview ghost visibility during the drag. Issue #4 of
+// issues--drag-refactor.md.
+export const THROW_VELOCITY_THRESHOLD = 2.0;
+
 // Press-vs-hold classification for GrabTool. A pointer down commits to a
 // carry when the cursor moves past GRAB_MOVE_THRESHOLD_PX from the press
 // point (fast move = short press) or the hold timer elapses past
