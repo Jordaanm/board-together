@@ -6,7 +6,7 @@ import { DEFAULT_PREFERENCES } from '../../preferences/types';
 import { registerCorePrimitives } from '../spawnables';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { CardComponent } from './CardComponent';
-import { DeckComponent, CARD_SLAB_HEIGHT, CARD_MASS } from './DeckComponent';
+import { DeckComponent, CARD_SLAB_HEIGHT, CARD_MASS, MAX_DECK_HEIGHT } from './DeckComponent';
 import { HandComponent } from './HandComponent';
 import { MeshComponent } from './MeshComponent';
 import { PhysicsComponent } from './PhysicsComponent';
@@ -34,6 +34,18 @@ describe('DeckComponent — patches mesh on cards change', () => {
     deck.getComponent(DeckComponent)!.setState({ cards: ['a', 'b'], category: 'x' });
     const ms = deck.getComponent(MeshComponent)!.state;
     expect(ms.height).toBeCloseTo(CARD_SLAB_HEIGHT * 2);
+  });
+
+  test('size.height clamps at MAX_DECK_HEIGHT once cards.length × CARD_SLAB_HEIGHT exceeds it', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      spawnCard(`c-${i}`, `f-${i}`, `b-${i}`);
+      ids.push(`c-${i}`);
+    }
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ cards: ids, category: 'x' });
+    const ms = deck.getComponent(MeshComponent)!.state;
+    expect(ms.height).toBeCloseTo(MAX_DECK_HEIGHT);
   });
 
   test('default (face-down): textureRefs.face = top card BACK, .back = bottom card FACE', () => {

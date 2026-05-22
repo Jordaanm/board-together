@@ -48,6 +48,10 @@ export const CARD_SLAB_HEIGHT = 0.02;
 // Per-card mass. Mirrors the `card` spawnable's physics.mass. Inlined here to
 // keep DeckComponent independent of the spawnable registry.
 export const CARD_MASS = 0.05;
+// Visible height ceiling for the deck mesh — past this point extra cards
+// keep stacking logically but the mesh stops growing so very tall decks
+// don't poke through the camera / table-zone roof. Sized to ~30 cards.
+export const MAX_DECK_HEIGHT = 30 * CARD_SLAB_HEIGHT;
 
 export class DeckComponent extends EntityComponent<DeckState> {
   static typeId   = 'deck';
@@ -189,7 +193,10 @@ export class DeckComponent extends EntityComponent<DeckState> {
 
     const w = mesh.state.width;
     const d = mesh.state.depth;
-    const h = CARD_SLAB_HEIGHT * n;
+    // Logical card count grows unbounded (cards-as-array), but the visible
+    // mesh height caps at MAX_DECK_HEIGHT so very tall stacks don't poke
+    // through the table-zone roof.
+    const h = Math.min(CARD_SLAB_HEIGHT * n, MAX_DECK_HEIGHT);
 
     const topId    = this.state.cards[0];
     const bottomId = this.state.cards[n - 1];
