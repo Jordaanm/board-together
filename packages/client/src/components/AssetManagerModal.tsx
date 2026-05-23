@@ -141,13 +141,33 @@ const BODY: React.CSSProperties = {
 
 const ROW: React.CSSProperties = {
   display:      'grid',
-  gridTemplateColumns: '40px 1fr 70px 60px',
+  gridTemplateColumns: '40px 1fr 70px 70px 60px',
   alignItems:   'center',
   gap:          8,
   padding:      '6px 8px',
   borderRadius: 'var(--card-radius)',
   border:       '1px solid var(--line)',
   marginBottom: 4,
+};
+
+const ROW_HEADER: React.CSSProperties = {
+  display:             'grid',
+  gridTemplateColumns: '40px 1fr 70px 70px 60px',
+  alignItems:          'center',
+  gap:                 8,
+  padding:             '4px 8px',
+  fontSize:            10,
+  textTransform:       'uppercase',
+  letterSpacing:       0.5,
+  color:               'var(--ink-mute)',
+};
+
+const ROW_SIZE: React.CSSProperties = {
+  fontSize:   11,
+  color:      'var(--ink-2)',
+  textAlign:  'right',
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
 };
 
 const PREVIEW_BOX: React.CSSProperties = {
@@ -373,6 +393,7 @@ function ReadOnlyList({ entries }: { entries: AssetEntry[] }) {
   }
   return (
     <>
+      <ListHeader />
       {entries.map((e) => (
         <div key={e.slug} style={ROW}>
           <RowPreview entry={e} />
@@ -381,10 +402,23 @@ function ReadOnlyList({ entries }: { entries: AssetEntry[] }) {
             <div style={ROW_SLUG}>{e.slug}</div>
           </div>
           <div style={ROW_TYPE}>{typeLabel(e.type)}</div>
+          <div style={ROW_SIZE}>{e.bundled === true && typeof e.size === 'number' ? formatBytes(e.size) : ''}</div>
           <div />
         </div>
       ))}
     </>
+  );
+}
+
+function ListHeader() {
+  return (
+    <div style={ROW_HEADER}>
+      <div />
+      <div>Name</div>
+      <div>Type</div>
+      <div style={{ textAlign: 'right' }}>Size</div>
+      <div />
+    </div>
   );
 }
 
@@ -473,6 +507,7 @@ function CustomTab({
           No custom assets yet. {canBundle ? 'Drop a file or paste a URL above to add one.' : 'Paste a URL above to add one.'}
         </div>
       )}
+      {customEntries.length > 0 && <ListHeader />}
       {customEntries.map((e) =>
         editing === e.slug
           ? <EditRow
@@ -551,6 +586,7 @@ function CustomRow({
         {bundleError && <div style={ERROR_LINE}>{bundleError}</div>}
       </div>
       <div style={ROW_TYPE}>{typeLabel(entry.type)}</div>
+      <div style={ROW_SIZE}>{entry.bundled === true && typeof entry.size === 'number' ? formatBytes(entry.size) : ''}</div>
       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
         {canBundleThis && (
           <button
