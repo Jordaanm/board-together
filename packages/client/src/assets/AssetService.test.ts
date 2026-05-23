@@ -5,6 +5,9 @@ import { Manifest, type AssetEntry } from './Manifest';
 import { spriteUV } from './spriteUV';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from './baseManifest';
 import { BundleStore } from './BundleStore';
+import { PdfDocumentCache } from './pdf/PdfDocumentCache';
+import { PdfRenderCache } from './pdf/PdfRenderCache';
+import type { Pdfjs } from './pdf/pdfjsLoader';
 
 const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0));
 
@@ -1037,5 +1040,189 @@ describe('AssetService — bundled wire fallback', () => {
     svc.subscribe('custom:bundled-img-2', 'image', () => {});
     await flushMicrotasks();
     expect(fake.requestCount()).toBe(2);
+  });
+});
+
+describe('AssetService PDF page resolution', () => {
+  const PDF_HASH = 'a'.repeat(64);
+  const pdfEntry: AssetEntry = {
+    slug:    'custom:my-doc',
+    name:    'My doc',
+    type:    'pdf',
+    url:     '',
+    preload: false,
+    bundled: true,
+    hash:    PDF_HASH,
+    size:    8,
+    aspectRatio: 0.77,
+  };
+
+  // Build a fake pdfjs that returns a doc with a configurable page count.
+  // Tracks how many times getDocument is called so dedup can be asserted.
+  function makeFakePdfjs(pageCount: number): {
+    pdfjs: Pdfjs;
+    getDocumentCalls: number;
+  } {
+    const state = { getDocumentCalls: 0 };
+    const pdfjs = {
+      getDocument: () => {
+        state.getDocumentCalls++;
+        return { promise: Promise.resolve({ numPages: pageCount, __doc: true }) };
+      },
+      GlobalWorkerOptions: { workerSrc: '' },
+    } as unknown as Pdfjs;
+    return { pdfjs, getDocumentCalls: 0, ...state };
+  }
+
+  // Stand-in for a CanvasTexture. The cache only ever calls `.dispose()`.
+  function fakeCanvasTexture(): THREE.CanvasTexture {
+    return { dispose: vi.fn() } as unknown as THREE.CanvasTexture;
+  }
+
+  function makeFakeBlob(): Blob {
+    return new Blob([new Uint8Array([0, 1, 2, 3])], { type: 'application/pdf' });
+  }
+
+  test('resolves a pdf page-ref to a CanvasTexture for a bundled entry', async () => {
+    const { pdfjs } = makeFakePdfjs(3);
+    const store = new BundleStore();
+    store.put(PDF_HASH, makeFakeBlob());
+    const renderedTex = fakeCanvasTexture();
+    const renderer = vi.fn(() => Promise.resolve(renderedTex));
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    const tex = await svc.resolve('pdf:custom:my-doc/page/1', 'image');
+    expect(tex).toBe(renderedTex);
+    expect(renderer).toHaveBeenCalledOnce();
+    expect(renderer.mock.calls[0][1]).toBe(1);
+  });
+
+  test('subscribe fires pending then loaded', async () => {
+    const { pdfjs } = makeFakePdfjs(1);
+    const store = new BundleStore();
+    store.put(PDF_HASH, makeFakeBlob());
+    const renderedTex = fakeCanvasTexture();
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  () => Promise.resolve(renderedTex),
+    });
+    const calls: AssetStatus[] = [];
+    svc.subscribe('pdf:custom:my-doc/page/1', 'image', (_tex, s) => calls.push(s));
+    expect(calls[0]).toBe('pending');
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(calls[calls.length - 1]).toBe('loaded');
+  });
+
+  test('two concurrent resolves for the same (slug, page) share one render', async () => {
+    const { pdfjs } = makeFakePdfjs(2);
+    const store = new BundleStore();
+    store.put(PDF_HASH, makeFakeBlob());
+    const renderer = vi.fn(() => Promise.resolve(fakeCanvasTexture()));
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    const [a, b] = await Promise.all([
+      svc.resolve('pdf:custom:my-doc/page/1', 'image'),
+      svc.resolve('pdf:custom:my-doc/page/1', 'image'),
+    ]);
+    expect(a).toBe(b);
+    expect(renderer).toHaveBeenCalledOnce();
+  });
+
+  test('unknown slug yields broken with the standard placeholder', async () => {
+    const renderer = vi.fn(() => Promise.resolve(fakeCanvasTexture()));
+    const svc = new AssetService({
+      manifests:        [BASE_MANIFEST],
+      bundleStore:      new BundleStore(),
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.reject(new Error('unused')) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    const tex = await svc.resolve('pdf:custom:nope/page/1', 'image');
+    expect(tex).toBe(getImagePlaceholder());
+    expect(svc.status('pdf:custom:nope/page/1', 'image')).toBe('broken');
+    expect(renderer).not.toHaveBeenCalled();
+  });
+
+  test('page out of range yields broken', async () => {
+    const { pdfjs } = makeFakePdfjs(2);
+    const store = new BundleStore();
+    store.put(PDF_HASH, makeFakeBlob());
+    const renderer = vi.fn(() => Promise.resolve(fakeCanvasTexture()));
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    const tex = await svc.resolve('pdf:custom:my-doc/page/99', 'image');
+    expect(tex).toBe(getImagePlaceholder());
+    expect(svc.status('pdf:custom:my-doc/page/99', 'image')).toBe('broken');
+    expect(renderer).not.toHaveBeenCalled();
+  });
+
+  test('pulls bytes through BundleStore for bundled entry', async () => {
+    const { pdfjs } = makeFakePdfjs(1);
+    const store = new BundleStore();
+    const blob  = makeFakeBlob();
+    store.put(PDF_HASH, blob);
+    const getSpy = vi.spyOn(store, 'get');
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  () => Promise.resolve(fakeCanvasTexture()),
+    });
+    await svc.resolve('pdf:custom:my-doc/page/1', 'image');
+    expect(getSpy).toHaveBeenCalledWith(PDF_HASH);
+  });
+
+  test('non-bundled pdf entry resolves as broken', async () => {
+    const renderer = vi.fn(() => Promise.resolve(fakeCanvasTexture()));
+    const urlPdf: AssetEntry = { ...pdfEntry, bundled: false, hash: undefined, size: undefined };
+    const svc = new AssetService({
+      manifests:        [Manifest.from([urlPdf])],
+      bundleStore:      new BundleStore(),
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.reject(new Error('unused')) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    const tex = await svc.resolve('pdf:custom:my-doc/page/1', 'image');
+    expect(tex).toBe(getImagePlaceholder());
+    expect(renderer).not.toHaveBeenCalled();
+  });
+
+  test('subsequent resolve of the same page hits the render cache without re-rendering', async () => {
+    const { pdfjs } = makeFakePdfjs(3);
+    const store = new BundleStore();
+    store.put(PDF_HASH, makeFakeBlob());
+    const renderedTex = fakeCanvasTexture();
+    const renderer = vi.fn(() => Promise.resolve(renderedTex));
+    const svc = new AssetService({
+      manifests:        [Manifest.from([pdfEntry])],
+      bundleStore:      store,
+      pdfDocumentCache: new PdfDocumentCache({ pdfjsLoader: () => Promise.resolve(pdfjs) }),
+      pdfRenderCache:   new PdfRenderCache(),
+      pdfPageRenderer:  renderer,
+    });
+    await svc.resolve('pdf:custom:my-doc/page/1', 'image');
+    svc.invalidate('pdf:custom:my-doc/page/1');
+    await svc.resolve('pdf:custom:my-doc/page/1', 'image');
+    expect(renderer).toHaveBeenCalledOnce();
   });
 });

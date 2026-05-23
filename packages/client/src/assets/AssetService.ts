@@ -3,10 +3,24 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { type AssetEntry, type AssetType, isSlug, Manifest } from './Manifest';
 import { parseRef } from './spriteRef';
 import { spriteUV } from './spriteUV';
+import { parsePdfRef } from './pdfRef';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from './baseManifest';
 import type { BundleStore } from './BundleStore';
 import type { BundleCache } from './BundleCache';
 import type { BundleTransport } from './BundleTransport';
+import { PdfDocumentCache } from './pdf/PdfDocumentCache';
+import { PdfRenderCache } from './pdf/PdfRenderCache';
+import { renderPage as defaultPdfPageRenderer } from './pdf/PdfPageRenderer';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+
+// Single scale used for in-world PDF page renders. Overlay (Issue #9)
+// will render at a higher scale through a separate path; this constant
+// is private to the in-world resolution.
+const PDF_RENDER_SCALE = 1.5;
+
+export type PdfPageRendererFn = (
+  doc: PDFDocumentProxy, page: number, scale: number,
+) => Promise<THREE.CanvasTexture>;
 
 // Single funnel for asset loads. Issues #1, #2, and #9 of
 // issues--asset-registry.md.
@@ -181,6 +195,12 @@ export interface AssetServiceOptions {
   // transport pointing at the host. Host-side: omit (the host resolves
   // bundled bytes locally; their transports per peer are the serve side).
   bundleTransport?: BundleTransport;
+  // PDF rendering seams — production wires the defaults from `./pdf/*`.
+  // Tests inject fakes against the document-cache seam so no real pdfjs
+  // ever runs in unit tests.
+  pdfDocumentCache?: PdfDocumentCache;
+  pdfRenderCache?:   PdfRenderCache;
+  pdfPageRenderer?:  PdfPageRendererFn;
 }
 
 export type ProgressListener = (pending: number) => void;
@@ -197,16 +217,22 @@ export class AssetService {
   private bundleStore:        BundleStore     | undefined;
   private bundleCache:        BundleCache     | undefined;
   private bundleTransport:    BundleTransport | undefined;
+  private pdfDocumentCache:   PdfDocumentCache;
+  private pdfRenderCache:     PdfRenderCache;
+  private pdfPageRenderer:    PdfPageRendererFn;
   private pending             = 0;
   private progressListeners   = new Set<ProgressListener>();
 
   constructor(opts: AssetServiceOptions = {}) {
-    this.imageLoader     = opts.imageLoader ?? defaultImageLoader;
-    this.modelLoader     = opts.modelLoader ?? defaultModelLoader;
-    this.soundLoader     = opts.soundLoader ?? defaultSoundLoader;
-    this.bundleStore     = opts.bundleStore;
-    this.bundleCache     = opts.bundleCache;
-    this.bundleTransport = opts.bundleTransport;
+    this.imageLoader      = opts.imageLoader ?? defaultImageLoader;
+    this.modelLoader      = opts.modelLoader ?? defaultModelLoader;
+    this.soundLoader      = opts.soundLoader ?? defaultSoundLoader;
+    this.bundleStore      = opts.bundleStore;
+    this.bundleCache      = opts.bundleCache;
+    this.bundleTransport  = opts.bundleTransport;
+    this.pdfDocumentCache = opts.pdfDocumentCache ?? new PdfDocumentCache();
+    this.pdfRenderCache   = opts.pdfRenderCache   ?? new PdfRenderCache();
+    this.pdfPageRenderer  = opts.pdfPageRenderer  ?? defaultPdfPageRenderer;
     if (opts.manifests) this.manifests = [...opts.manifests];
   }
 
@@ -463,6 +489,11 @@ export class AssetService {
   }
 
   private startImageLoad(ref: string, entry: ImageEntry): void {
+    const pdfParsed = parsePdfRef(ref);
+    if (pdfParsed) {
+      this.startPdfPageLoad(entry, pdfParsed.slug, pdfParsed.page);
+      return;
+    }
     const parsed = parseRef(ref);
     if (parsed && parsed.kind === 'sprite') {
       this.startSpriteLoad(ref, entry, parsed.sheetSlug, parsed.index);
@@ -643,6 +674,72 @@ export class AssetService {
       entry.texture = clone;
       for (const l of entry.listeners) l(clone, 'loaded');
       return clone;
+    });
+  }
+
+  // Resolve a `pdf:<slug>/page/<n>` synthetic ref. Routes through
+  // BundleStore/Cache/Transport for bytes (PDFs are upload-bundled),
+  // PdfDocumentCache for parsing, and PdfRenderCache for rendered
+  // textures. Failure modes (unknown / wrong-type slug, non-bundled
+  // entry, out-of-range page, parse / render exception) collapse to the
+  // magenta placeholder + broken status.
+  private startPdfPageLoad(entry: ImageEntry, slug: string, page: number): void {
+    const fail = (): THREE.Texture => {
+      entry.status  = 'broken';
+      entry.texture = getImagePlaceholder();
+      for (const l of entry.listeners) l(entry.texture, 'broken');
+      return entry.texture;
+    };
+
+    const cached = this.pdfRenderCache.get(slug, page, PDF_RENDER_SCALE);
+    if (cached) {
+      entry.status      = 'loaded';
+      entry.texture     = cached;
+      entry.loadPromise = Promise.resolve(cached);
+      for (const l of entry.listeners) l(cached, 'loaded');
+      return;
+    }
+
+    const found = this.lookupSlug(slug);
+    if (!found || found.type !== 'pdf' || found.bundled !== true || !found.hash) {
+      entry.loadPromise = Promise.resolve(fail());
+      return;
+    }
+
+    const resolution = this.resolveBundleBlob(found.hash);
+    entry.cancelWirePull = resolution.cancel;
+    entry.loadPromise = resolution.promise.then(async (blob): Promise<THREE.Texture> => {
+      entry.cancelWirePull = undefined;
+      if (!blob) return fail();
+
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await blob.arrayBuffer());
+      } catch {
+        return fail();
+      }
+
+      let doc: PDFDocumentProxy;
+      try {
+        doc = await this.pdfDocumentCache.getDocument(slug, bytes);
+      } catch {
+        return fail();
+      }
+
+      if (page < 1 || page > doc.numPages) return fail();
+
+      let tex: THREE.CanvasTexture;
+      try {
+        tex = await this.pdfPageRenderer(doc, page, PDF_RENDER_SCALE);
+      } catch {
+        return fail();
+      }
+
+      this.pdfRenderCache.put(slug, page, PDF_RENDER_SCALE, tex);
+      entry.status  = 'loaded';
+      entry.texture = tex;
+      for (const l of entry.listeners) l(tex, 'loaded');
+      return tex;
     });
   }
 
