@@ -27,6 +27,7 @@ import { HotkeyDispatcher } from './input/HotkeyDispatcher';
 import { CursorTracker } from './cursor/CursorTracker';
 import { CursorOverlay } from './cursor/CursorOverlay';
 import { PingOverlay } from './cursor/PingOverlay';
+import { HoverTooltipOverlay } from './cursor/HoverTooltipOverlay';
 import { SeatOverlay } from './seats/SeatOverlay';
 import { SeatGizmoBinding } from './seats/SeatGizmoBinding';
 import { TableComponent } from './entity/components/TableComponent';
@@ -134,6 +135,7 @@ export function ThreeCanvas({
     const cursorOverlay = new CursorOverlay(scene);
     const seatOverlay   = new SeatOverlay(scene);
     let   pingOverlay: PingOverlay | null = null;
+    const hoverTooltip  = new HoverTooltipOverlay(container);
 
     // Local pointer state — raycast onto the table plane and broadcast at
     // ~30Hz so peers see this user's cursor in real time.
@@ -144,8 +146,12 @@ export function ThreeCanvas({
     let   cursorPending: { x: number; z: number } | null = null;
     let   cursorLastSent = 0;
     const CURSOR_INTERVAL_MS = 33;
+    // Last client-space pointer position. Drives the local-only hover
+    // tooltip's screen placement — never sent on the wire.
+    let   pointerClient: { x: number; y: number } | null = null;
 
     const onCursorMove = (e: PointerEvent) => {
+      pointerClient = { x: e.clientX, y: e.clientY };
       const rect = renderer.domElement.getBoundingClientRect();
       cursorPtrNDC.set(
         ((e.clientX - rect.left) / rect.width)  * 2 - 1,
@@ -155,7 +161,9 @@ export function ThreeCanvas({
       if (!cursorRay.ray.intersectPlane(cursorPlane, cursorHit)) return;
       cursorPending = { x: cursorHit.x, z: cursorHit.z };
     };
+    const onCursorLeave = () => { pointerClient = null; };
     renderer.domElement.addEventListener('pointermove', onCursorMove);
+    renderer.domElement.addEventListener('pointerleave', onCursorLeave);
 
     freeCameraRef.current = (on) => camController.setRestricted(on);
     snapCameraOrbitRef.current = (theta, target) => camController.snapOrbit(theta, target);
@@ -426,6 +434,13 @@ export function ThreeCanvas({
       dispatcher.update(dt);
       inputDispatcher.update(dt);
 
+      // Local-only hover tooltip — read whatever the input dispatcher just
+      // resolved as the hovered entity and feed it into the DOM overlay along
+      // with the last pointer position.
+      const hoveredId = inputDispatcher.getHoveredId();
+      const hovered   = hoveredId ? world.get(hoveredId)?.entity ?? null : null;
+      hoverTooltip.update(hovered, pointerClient);
+
       // ── Cursor: throttled send + render sync ───────────────────────────
       const cursorNow = performance.now();
       if (cursorPending && cursorNow - cursorLastSent >= CURSOR_INTERVAL_MS) {
@@ -500,7 +515,9 @@ export function ThreeCanvas({
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
       renderer.domElement.removeEventListener('pointermove', onCursorMove);
+      renderer.domElement.removeEventListener('pointerleave', onCursorLeave);
       renderer.domElement.removeEventListener('pointerdown', focusOnDown);
+      hoverTooltip.dispose();
       hotkeyDispatcher.dispose();
       onSceneReady?.(null);
       unsubscribePing();

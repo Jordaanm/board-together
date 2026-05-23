@@ -15,6 +15,7 @@ import {
   type ActionContext,
   type GrabIntent,
 } from '../EntityComponent';
+import { type PropertyDef } from '../propertySchema';
 import { type SeatIndex } from '../../seats/SeatLayout';
 import { MeshComponent } from './MeshComponent';
 import { PhysicsComponent } from './PhysicsComponent';
@@ -29,6 +30,9 @@ const LOCK_GLOW_COLOR = 0x4060d0;
 export interface DeckState {
   cards:    string[];
   category: string;
+  // Singular/plural noun used by the hover tooltip ("12 cards", "5 spells").
+  // Per-instance, host-editable, replicated.
+  label:    string;
   // When true, the deck's top renders the top card's face (and the bottom
   // renders the bottom card's back). Default false → top renders the top
   // card's back (face-down deck) and the bottom renders the bottom card's
@@ -55,7 +59,11 @@ export const MAX_DECK_HEIGHT = 30 * CARD_SLAB_HEIGHT;
 
 export class DeckComponent extends EntityComponent<DeckState> {
   static typeId   = 'deck';
+  static label    = 'Deck';
   static requires = ['transform', 'mesh', 'physics'] as const;
+  static propertySchema: readonly PropertyDef<DeckState>[] = [
+    { key: 'label', label: 'Label', type: 'string' },
+  ];
 
   onSpawn(_ctx: SpawnContext): void {
     this.applyCardsToSiblings();
@@ -65,8 +73,8 @@ export class DeckComponent extends EntityComponent<DeckState> {
   // never carry a stale lock back across a load. Mirrors the way
   // `Entity.heldBy` is omitted from `entityToSerialized`.
   toJSON(): object {
-    const { cards, category, showTopFace } = this.state;
-    return { cards: [...cards], category, showTopFace };
+    const { cards, category, label, showTopFace } = this.state;
+    return { cards: [...cards], category, label, showTopFace };
   }
 
   fromJSON(o: object): void {
@@ -74,6 +82,7 @@ export class DeckComponent extends EntityComponent<DeckState> {
     this.state = {
       cards:          raw.cards ? [...raw.cards] : [],
       category:       raw.category ?? '',
+      label:          raw.label    ?? 'cards',
       showTopFace:    raw.showTopFace ?? false,
       searchLockedBy: null,
     };

@@ -10,6 +10,7 @@ import {
   type SpawnContext,
   type GrabIntent,
 } from '../EntityComponent';
+import { type PropertyDef } from '../propertySchema';
 import { type Entity } from '../Entity';
 import { ZoneComponent } from './ZoneComponent';
 import { TableComponent } from './TableComponent';
@@ -17,6 +18,9 @@ import { SnapPointsComponent } from './SnapPointsComponent';
 
 export interface BagState {
   contents:          string[];
+  // Singular/plural noun used by the hover tooltip ("12 dice", "3 tokens").
+  // Per-instance, host-editable, replicated.
+  label:             string;
   acceptComponents?: string[];
 }
 
@@ -24,12 +28,18 @@ export class BagComponent extends EntityComponent<BagState> {
   static typeId   = 'bag';
   static label    = 'Bag';
   static requires = ['transform', 'mesh', 'physics'] as const;
+  static propertySchema: readonly PropertyDef<BagState>[] = [
+    { key: 'label', label: 'Label', type: 'string' },
+  ];
 
   onSpawn(_ctx: SpawnContext): void {}
   onPropertiesChanged(_changed: Partial<BagState>): void {}
 
   toJSON(): object {
-    const out: BagState = { contents: [...this.state.contents] };
+    const out: BagState = {
+      contents: [...this.state.contents],
+      label:    this.state.label,
+    };
     if (this.state.acceptComponents !== undefined) {
       out.acceptComponents = [...this.state.acceptComponents];
     }
@@ -40,6 +50,7 @@ export class BagComponent extends EntityComponent<BagState> {
     const raw = o as Partial<BagState>;
     this.state = {
       contents: raw.contents ? [...raw.contents] : [],
+      label:    raw.label    ?? 'items',
       ...(raw.acceptComponents !== undefined
         ? { acceptComponents: [...raw.acceptComponents] }
         : {}),

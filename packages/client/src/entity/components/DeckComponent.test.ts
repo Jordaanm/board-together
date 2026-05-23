@@ -266,3 +266,24 @@ describe('DeckComponent.onTryGrab', () => {
   });
 });
 
+describe('DeckComponent — label', () => {
+  test('deck spawnable defaults label to "cards"', () => {
+    const deck = scene.spawn('deck', ctx);
+    expect(deck.getComponent(DeckComponent)!.state.label).toBe('cards');
+  });
+
+  test('toJSON / fromJSON round-trip preserves label', () => {
+    const deck = scene.spawn('deck', ctx);
+    deck.getComponent(DeckComponent)!.setState({ label: 'spells' });
+    const fresh = new DeckComponent();
+    fresh.fromJSON(deck.getComponent(DeckComponent)!.toJSON());
+    expect(fresh.state.label).toBe('spells');
+  });
+
+  test('fromJSON without label falls back to "cards"', () => {
+    const fresh = new DeckComponent();
+    fresh.fromJSON({ cards: [], category: '', showTopFace: false });
+    expect(fresh.state.label).toBe('cards');
+  });
+});
+

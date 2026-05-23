@@ -156,7 +156,7 @@ export function registerCorePrimitives(): void {
       { typeId: 'mesh',      state: { meshRef: 'prim:deck', textureRefs: { face: '', back: '' }, color: '#fafafa', applyTint: false, width: 0.63, height: 0.02, depth: 0.88 } },
       { typeId: 'physics',   state: { mass: 0.05, friction: 0.6, restitution: 0.1, isLocked: false, yawOnly: true } },
       { typeId: 'tween',     state: {} },
-      { typeId: 'deck',      state: { cards: [], category: '' } },
+      { typeId: 'deck',      state: { cards: [], category: '', label: 'cards' } },
     ],
   });
 
@@ -170,7 +170,7 @@ export function registerCorePrimitives(): void {
       { typeId: 'mesh',      state: { meshRef: 'base:bag/default', textureRefs: { default: '' }, color: '#ffffff', applyTint: false, width: 0.4, height: 0.3, depth: 0.4 } },
       { typeId: 'physics',   state: { mass: 0.4, friction: 0.6, restitution: 0.2, isLocked: false, yawOnly: true, shape: 'auto-hull' } },
       { typeId: 'tween',     state: {} },
-      { typeId: 'bag',       state: { contents: [] } },
+      { typeId: 'bag',       state: { contents: [], label: 'items' } },
     ],
   });
 

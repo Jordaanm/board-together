@@ -23,6 +23,7 @@ describe('BagComponent — registration + spawn', () => {
     expect(bagC).toBeDefined();
     expect(bagC!.state.contents).toEqual([]);
     expect(bagC!.state.acceptComponents).toBeUndefined();
+    expect(bagC!.state.label).toBe('items');
     const mesh = bag.components.get('mesh') as { state: { meshRef: string; applyTint: boolean } } | undefined;
     expect(mesh?.state.meshRef).toBe('base:bag/default');
     expect(mesh?.state.applyTint).toBe(false);
@@ -50,6 +51,21 @@ describe('BagComponent — serialization', () => {
     fresh.fromJSON(json);
     expect(fresh.state.contents).toEqual(['a', 'b', 'c']);
     expect(fresh.state.acceptComponents).toEqual(['mesh', 'physics']);
+  });
+
+  test('toJSON / fromJSON round-trip preserves label', () => {
+    const bag = scene.spawn('bag', ctx);
+    const bagC = bag.getComponent(BagComponent)!;
+    bagC.state.label = 'dice';
+    const fresh = new BagComponent();
+    fresh.fromJSON(bagC.toJSON());
+    expect(fresh.state.label).toBe('dice');
+  });
+
+  test('fromJSON without label falls back to "items"', () => {
+    const fresh = new BagComponent();
+    fresh.fromJSON({ contents: [] });
+    expect(fresh.state.label).toBe('items');
   });
 
   test('toJSON returns fresh array (mutation does not leak)', () => {
