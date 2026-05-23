@@ -9,7 +9,7 @@
 // is intentionally narrow so save files and wire payloads stay terse and
 // case-folding can't introduce ambiguity.
 
-export type AssetType = 'image' | 'model' | 'sound' | 'spritesheet';
+export type AssetType = 'image' | 'model' | 'sound' | 'spritesheet' | 'pdf';
 
 export interface AssetEntry {
   slug:         string;
@@ -33,6 +33,10 @@ export interface AssetEntry {
   bundled?:     boolean;
   hash?:        string;
   size?:        number;
+  // pdf-only: positive finite number — page-1 width / height. Captured at
+  // upload so spawned PDF entities can size their depth without parsing
+  // the PDF on every spawn.
+  aspectRatio?: number;
 }
 
 export class ManifestError extends Error {}
@@ -71,7 +75,7 @@ export function isSlug(ref: string): boolean {
   return namespaceOf(ref) !== null;
 }
 
-const ASSET_TYPES = new Set<AssetType>(['image', 'model', 'sound', 'spritesheet']);
+const ASSET_TYPES = new Set<AssetType>(['image', 'model', 'sound', 'spritesheet', 'pdf']);
 const HASH_RE     = /^[a-f0-9]{64}$/;
 
 function isPositiveInt(n: unknown): n is number {
@@ -115,6 +119,20 @@ function validateEntry(entry: AssetEntry): void {
     }
     if (entry.rows !== undefined) {
       throw new ManifestError(`entry "${entry.slug}": rows is only valid on spritesheet entries`);
+    }
+  }
+  if (entry.type === 'pdf') {
+    if (namespaceOf(entry.slug) !== 'custom') {
+      throw new ManifestError(`entry "${entry.slug}": pdf entries must use the "custom" namespace`);
+    }
+    if (entry.aspectRatio !== undefined) {
+      if (typeof entry.aspectRatio !== 'number' || !Number.isFinite(entry.aspectRatio) || entry.aspectRatio <= 0) {
+        throw new ManifestError(`entry "${entry.slug}": aspectRatio must be a positive finite number`);
+      }
+    }
+  } else {
+    if (entry.aspectRatio !== undefined) {
+      throw new ManifestError(`entry "${entry.slug}": aspectRatio is only valid on pdf entries`);
     }
   }
   if (entry.bundled !== undefined && typeof entry.bundled !== 'boolean') {

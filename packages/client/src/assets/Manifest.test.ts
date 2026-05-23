@@ -264,6 +264,46 @@ describe('Manifest bundled entries', () => {
   });
 });
 
+describe('Manifest pdf entries', () => {
+  const pdf: AssetEntry = {
+    slug:        'custom:my-doc',
+    name:        'My doc',
+    type:        'pdf',
+    url:         '',
+    preload:     false,
+    aspectRatio: 0.77,
+  };
+
+  test('accepts pdf entry with aspectRatio', () => {
+    const m = Manifest.empty().add(pdf);
+    expect(m.get('custom:my-doc')?.type).toBe('pdf');
+    expect(m.get('custom:my-doc')?.aspectRatio).toBeCloseTo(0.77);
+  });
+
+  test('accepts pdf entry without aspectRatio (optional)', () => {
+    const m = Manifest.empty().add({ ...pdf, aspectRatio: undefined });
+    expect(m.get('custom:my-doc')?.aspectRatio).toBeUndefined();
+  });
+
+  test('rejects aspectRatio on non-pdf entries', () => {
+    expect(() =>
+      Manifest.empty().add({ ...sampleImage, aspectRatio: 0.77 } as AssetEntry)
+    ).toThrow(/aspectRatio/);
+  });
+
+  test('rejects zero / negative / non-finite aspectRatio on pdf entries', () => {
+    expect(() => Manifest.empty().add({ ...pdf, aspectRatio: 0    })).toThrow(/aspectRatio/);
+    expect(() => Manifest.empty().add({ ...pdf, aspectRatio: -1   })).toThrow(/aspectRatio/);
+    expect(() => Manifest.empty().add({ ...pdf, aspectRatio: NaN  })).toThrow(/aspectRatio/);
+    expect(() => Manifest.empty().add({ ...pdf, aspectRatio: Infinity })).toThrow(/aspectRatio/);
+  });
+
+  test('rejects pdf outside custom namespace', () => {
+    expect(() => Manifest.empty().add({ ...pdf, slug: 'base:my-doc' })).toThrow(/custom/);
+    expect(() => Manifest.empty().add({ ...pdf, slug: 'prim:my-doc' })).toThrow(/custom/);
+  });
+});
+
 describe('Manifest spritesheet entries', () => {
   const sheet: AssetEntry = {
     slug: 'custom:deck', name: 'Deck', type: 'spritesheet',
