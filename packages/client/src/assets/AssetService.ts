@@ -743,6 +743,29 @@ export class AssetService {
     });
   }
 
+  // Overlay path — resolves bytes through the bundle chain, hands the
+  // PDF document to the caller. Used by the overlay sheet (Issue #9) and
+  // by the text-layer integration (Issue #11). Each callsite owns the
+  // returned doc only for the duration of its render; document caching
+  // is handled inside `PdfDocumentCache`.
+  async resolvePdfDocument(slug: string): Promise<PDFDocumentProxy | null> {
+    const entry = this.lookupSlug(slug);
+    if (!entry || entry.type !== 'pdf' || entry.bundled !== true || !entry.hash) return null;
+    const blob = await this.resolveBundleBlob(entry.hash).promise;
+    if (!blob) return null;
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await blob.arrayBuffer());
+    } catch {
+      return null;
+    }
+    try {
+      return await this.pdfDocumentCache.getDocument(slug, bytes);
+    } catch {
+      return null;
+    }
+  }
+
   // Subscribe to a spritesheet's parent-image load status. The Asset Manager
   // uses this to surface the warning badge on a broken sheet URL — sprite-ref
   // subscribers go broken automatically; the badge sees the underlying cause.

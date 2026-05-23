@@ -50,6 +50,8 @@ import { BundleCache } from '../assets/BundleCache';
 import { IdbBundleCacheDriver } from '../assets/IdbBundleCacheDriver';
 import { BASE_MANIFEST, PRIMITIVE_MANIFEST } from '../assets/baseManifest';
 import { AssetLoadingIndicator } from '../components/AssetLoadingIndicator';
+import { PdfOverlayController } from '../components/PdfOverlayController';
+import { PdfOverlaySheet } from '../components/PdfOverlaySheet';
 import './Room.css';
 
 type Status = 'connecting' | 'connected' | 'disconnected' | 'room-full' | 'wrong-password' | 'banned';
@@ -168,6 +170,9 @@ export function Room({ roomId, isHost }: Props) {
   const kickPeerRef        = useRef<(peerId: string) => void>(noop);
   const banPeerRef         = useRef<(peerId: string) => void>(noop);
   const manifestStoreRef   = useRef<ManifestStore | null>(null);
+  // Per-viewer "Open in Overlay" controller (Issue #9). Stable identity
+  // for the lifetime of the Room — never replicated.
+  const pdfOverlayController = useRef(new PdfOverlayController()).current;
   const connectionManagerRef = useRef<ConnectionManager | null>(null);
   const endTurnRef         = useRef<() => void>(noop);
   const dispatchTurnRef    = useRef<(action: TurnAction) => void>(noop);
@@ -749,6 +754,7 @@ export function Room({ roomId, isHost }: Props) {
         setShowHitboxesRef={setShowHitboxesRef}
         setHandViewRef={setHandViewRef}
         onSceneReady={setHandle}
+        pdfOverlayController={pdfOverlayController}
       />
 
       <AnchorLayout>
@@ -908,6 +914,8 @@ export function Room({ roomId, isHost }: Props) {
         <UIPanel anchor="bottom-right" order={20}>
           <AssetLoadingIndicator />
         </UIPanel>
+
+        <PdfOverlaySheet controller={pdfOverlayController} />
 
         {isHost && status === 'connecting' && (
           <UIPanel anchor="bottom-center" order={10}>

@@ -30,6 +30,8 @@ import { PingOverlay } from './cursor/PingOverlay';
 import { HoverTooltipOverlay } from './cursor/HoverTooltipOverlay';
 import { PdfFloatingButtonsOverlay } from './components/PdfFloatingButtonsOverlay';
 import { dispatchAction } from './input/ContextMenuController';
+import { PdfComponent } from './entity/components/PdfComponent';
+import { type PdfOverlayController } from './components/PdfOverlayController';
 import { SeatOverlay } from './seats/SeatOverlay';
 import { SeatGizmoBinding } from './seats/SeatGizmoBinding';
 import { TableComponent } from './entity/components/TableComponent';
@@ -80,6 +82,10 @@ interface Props {
   // cleanup. Replaces the ~30 scene-mutate refs that used to thread through
   // ThreeCanvas. Issue #2 of issues--refactor-world-ref.md.
   onSceneReady?:       (handle: SceneHandle | null) => void;
+  // Per-viewer "Open in Overlay" controller — populated by Room. The
+  // floating-button Open click resolves the hovered PDF entity's
+  // current slug + page and forwards into controller.open.
+  pdfOverlayController?: PdfOverlayController;
 }
 
 export interface HandView {
@@ -100,6 +106,7 @@ export function ThreeCanvas({
   setShowHitboxesRef,
   setHandViewRef,
   onSceneReady,
+  pdfOverlayController,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -151,10 +158,18 @@ export function ThreeCanvas({
         selfSeat: getSelfSeatRef.current(),
       });
     };
-    // Open-in-overlay is per-viewer state, wired in Issue #9. For
-    // Issue #8 it stays a stub so the button is clickable but does
-    // nothing.
-    let onOpenInOverlay: (entityId: string) => void = () => {};
+    // Open-in-overlay is per-viewer state. Resolves the PDF entity's
+    // current slug + page synchronously, then hands them to the
+    // viewer's controller (passed in from Room) — never sent on the
+    // wire, so each viewer's sheet is independent.
+    const onOpenInOverlay = (entityId: string) => {
+      if (!pdfOverlayController) return;
+      const entity = worldRef?.get(entityId)?.entity;
+      if (!entity) return;
+      const pdf = entity.getComponent(PdfComponent);
+      if (!pdf || !pdf.state.assetSlug) return;
+      pdfOverlayController.open(pdf.state.assetSlug, pdf.state.currentPage);
+    };
     const pdfButtons    = new PdfFloatingButtonsOverlay(container, {
       onPrev: (id) => dispatchPdfAction(id, 'pdf-prev'),
       onNext: (id) => dispatchPdfAction(id, 'pdf-next'),
