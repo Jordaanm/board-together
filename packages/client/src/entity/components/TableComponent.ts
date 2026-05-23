@@ -6,6 +6,7 @@
 // check, so future fixture-class entities can reuse the pattern.
 
 import { EntityComponent, type SpawnContext } from '../EntityComponent';
+import { type PropertyDef } from '../propertySchema';
 import { MeshComponent } from './MeshComponent';
 import { TransformComponent } from './TransformComponent';
 import { defaultSeatStates, type SeatState } from '../../seats/SeatPoseState';
@@ -22,6 +23,22 @@ export class TableComponent extends EntityComponent<TableState> {
   static typeId   = 'table';
   static label    = 'Table';
   static requires = ['mesh', 'transform'] as const;
+
+  // The `seats` entry exists only so World.updateComponentProp accepts
+  // writes for the key — the Seats section in EditorPanel owns the actual
+  // editor UI, so `condition: () => false` keeps the row out of the
+  // schema-driven Property editor. The set adapter is a verbatim
+  // pass-through so an array argument survives the schema clamp + adapter
+  // pipeline unmodified.
+  static propertySchema: readonly PropertyDef<TableState>[] = [
+    {
+      key:       'seats',
+      label:     'Seats',
+      type:      'string',
+      condition: () => false,
+      set:       (value) => ({ seats: value as SeatState[] }),
+    },
+  ];
 
   onSpawn(_ctx: SpawnContext): void {
     if (!Array.isArray(this.state.seats) || this.state.seats.length === 0) {

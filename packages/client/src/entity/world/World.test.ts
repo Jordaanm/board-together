@@ -152,6 +152,35 @@ describe('World — Table boot path (table-as-entity slice 1)', () => {
     expect(guestTable.get(LightingComponent)!.state.intensity).toBeCloseTo(0.5, 5);
   });
 
+  test('updateComponentProp persists a seats array write end-to-end', () => {
+    // Regression: World.updateComponentProp short-circuits when no schema
+    // entry exists for the key. The TableComponent.seats passthrough entry
+    // exists specifically so panel + gizmo writes land on host state and
+    // replicate to guests rather than vanishing silently.
+    pair = setup();
+    pair.host.tick(0.016);  // replicate Table to guest
+
+    const nextSeats = [
+      { x: 99.5, z: -88.25, yaw: 1.5 },
+      { x:  1,   z:   2,    yaw: 0   },
+      { x:  3,   z:   4,    yaw: 0   },
+      { x:  5,   z:   6,    yaw: 0   },
+      { x:  7,   z:   8,    yaw: 0   },
+      { x:  9,   z:  10,    yaw: 0   },
+      { x: 11,   z:  12,    yaw: 0   },
+      { x: 13,   z:  14,    yaw: 0   },
+    ];
+    pair.host.updateComponentProp(TABLE_ENTITY_ID, 'table', 'seats', nextSeats);
+
+    const hostSeats = pair.host.get(TABLE_ENTITY_ID)!.get(TableComponent)!.state.seats;
+    expect(hostSeats?.[0]).toEqual({ x: 99.5, z: -88.25, yaw: 1.5 });
+
+    pair.host.tick(0.016);  // flush replication
+
+    const guestSeats = pair.guest.get(TABLE_ENTITY_ID)!.get(TableComponent)!.state.seats;
+    expect(guestSeats?.[0]).toEqual({ x: 99.5, z: -88.25, yaw: 1.5 });
+  });
+
   test('updateComponentProp clamps a non-positive scale to the schema min', () => {
     pair = setup();
     pair.host.updateComponentProp(TABLE_ENTITY_ID, 'transform', 'scale', 0);
