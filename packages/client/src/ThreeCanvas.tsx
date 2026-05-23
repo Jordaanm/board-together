@@ -55,6 +55,10 @@ interface Props {
   // Drives SeatGizmoBinding's attach/detach and the SeatOverlay's "hide
   // the actively-edited seat" treatment.
   getEditingSeatIndexRef: MutableRefObject<() => number | null>;
+  // Mutated by ThreeCanvas to expose CameraController.snapOrbit. Room's
+  // seat-assignment subscription calls this with a pure-helper-computed
+  // orbit when the local player's seat changes.
+  snapCameraOrbitRef:     MutableRefObject<(theta: number, target: { x: number; y: number; z: number }) => void>;
   onMsgRef:            MutableRefObject<(peerId: string, msg: ChannelMessage) => void>;
   onPeerLeftRef:       MutableRefObject<(peerId: string) => void>;
   onPeerJoinedRef:     MutableRefObject<(peerId: string) => void>;
@@ -82,7 +86,7 @@ export interface HandView {
 
 export function ThreeCanvas({
   isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
-  getRoomSnapshotRef, getEditingSeatIndexRef,
+  getRoomSnapshotRef, getEditingSeatIndexRef, snapCameraOrbitRef,
   onMsgRef, onPeerLeftRef, onPeerJoinedRef,
   onContextMenuRef,
   isMenuOpenRef,
@@ -154,6 +158,7 @@ export function ThreeCanvas({
     renderer.domElement.addEventListener('pointermove', onCursorMove);
 
     freeCameraRef.current = (on) => camController.setRestricted(on);
+    snapCameraOrbitRef.current = (theta, target) => camController.snapOrbit(theta, target);
 
     // ── World transport ─────────────────────────────────────────────────
     // RtcTransport owns per-peer fan-out and privacy scrubbing internally.
@@ -518,6 +523,7 @@ export function ThreeCanvas({
       onPeerLeftRef.current   = () => {};
       onPeerJoinedRef.current = () => {};
       freeCameraRef.current      = () => {};
+      snapCameraOrbitRef.current = () => {};
       setHighlightRef.current    = () => {};
       setActiveToolRef.current   = () => false;
       getActiveToolRef.current   = () => 'grab';
@@ -529,7 +535,7 @@ export function ThreeCanvas({
     };
   }, [
     isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
-    getRoomSnapshotRef, getEditingSeatIndexRef,
+    getRoomSnapshotRef, getEditingSeatIndexRef, snapCameraOrbitRef,
     onMsgRef, onPeerLeftRef, onPeerJoinedRef,
     onContextMenuRef,
     isMenuOpenRef,

@@ -59,6 +59,15 @@ export class CameraController {
     this.apply();
   }
 
+  // One-shot orbit mutation used by the seat-assignment snap. Caller computes
+  // theta + target from the pure helper; radius and phi are preserved. The
+  // camera reverts to free orbit afterward — no lock mode.
+  snapOrbit(theta: number, target: { x: number; y: number; z: number }): void {
+    this.theta = ((theta % TWO_PI) + TWO_PI) % TWO_PI;
+    this.target.set(target.x, target.y, target.z);
+    this.apply();
+  }
+
   dispose() {
     this.element.removeEventListener('pointerdown', this.onDown);
     this.element.removeEventListener('pointermove', this.onMove);

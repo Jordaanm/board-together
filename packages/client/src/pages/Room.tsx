@@ -30,6 +30,9 @@ import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '.
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
+import { TableComponent } from '../entity/components/TableComponent';
+import { seatPoseFromState } from '../seats/SeatPoseState';
+import { computeOrbitForSeat } from '../seats/computeOrbitForSeat';
 import { DiceComponent } from '../entity/components/DiceComponent';
 import { DeckComponent } from '../entity/components/DeckComponent';
 import { RoomStateManager } from '../seats/RoomStateManager';
@@ -105,6 +108,24 @@ export function Room({ roomId, isHost }: Props) {
       setEditingSeatIndex(null);
     }
   }, [selectedId, editingSeatIndex]);
+
+  // Camera snap on seat assignment. Fires once when the local player's seat
+  // transitions to a new non-null seat (spectator → seated, or reseated to a
+  // different index). Loss-of-seat is a no-op per PRD edge handling.
+  useEffect(() => {
+    if (!handle || !selfPeerId || !roomSnapshot) return;
+    const seat = roomSnapshot.seats.find(s => s.peerId === selfPeerId)?.index ?? null;
+    if (seat === null) { prevSelfSeatRef.current = null; return; }
+    if (prevSelfSeatRef.current === seat) return;
+    const table = handle.controller.get(TABLE_ENTITY_ID);
+    const seats = table?.entity.getComponent(TableComponent)?.state.seats;
+    const stored = seats?.[seat];
+    if (!stored) return;
+    const pose = seatPoseFromState(stored);
+    const snap = computeOrbitForSeat(pose, 0, 0);
+    snapCameraOrbitRef.current(snap.theta, snap.target);
+    prevSelfSeatRef.current = seat;
+  }, [roomSnapshot, selfPeerId, handle]);
   const [inspectDialog, setInspectDialog] = useState<{
     deckId:   string;
     deckName: string;
@@ -121,6 +142,11 @@ export function Room({ roomId, isHost }: Props) {
   const getPeerSeatRef     = useRef<(peerId: string) => SeatIndex | null>(() => null);
   const getRoomSnapshotRef = useRef<() => RoomStateSnapshot | null>(() => null);
   const getEditingSeatIndexRef = useRef<() => number | null>(() => null);
+  const snapCameraOrbitRef = useRef<(theta: number, target: { x: number; y: number; z: number }) => void>(noop);
+  // Tracks the local player's last-applied seat to gate the camera snap. null
+  // means "spectator (or unknown)"; this state lives outside React render so
+  // a snapshot fan-out doesn't re-trigger the snap.
+  const prevSelfSeatRef = useRef<SeatIndex | null>(null);
   const onMsgRef           = useRef<(peerId: string, msg: ChannelMessage) => void>(noop);
   const onPeerLeftRef      = useRef<(peerId: string) => void>(noop);
   const onPeerJoinedRef    = useRef<(peerId: string) => void>(noop);
@@ -707,6 +733,7 @@ export function Room({ roomId, isHost }: Props) {
         getPeerSeatRef={getPeerSeatRef}
         getRoomSnapshotRef={getRoomSnapshotRef}
         getEditingSeatIndexRef={getEditingSeatIndexRef}
+        snapCameraOrbitRef={snapCameraOrbitRef}
         onMsgRef={onMsgRef}
         onPeerLeftRef={onPeerLeftRef}
         onPeerJoinedRef={onPeerJoinedRef}
