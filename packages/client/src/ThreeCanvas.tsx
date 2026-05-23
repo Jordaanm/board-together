@@ -27,6 +27,9 @@ import { HotkeyDispatcher } from './input/HotkeyDispatcher';
 import { CursorTracker } from './cursor/CursorTracker';
 import { CursorOverlay } from './cursor/CursorOverlay';
 import { PingOverlay } from './cursor/PingOverlay';
+import { SeatOverlay } from './seats/SeatOverlay';
+import { TableComponent } from './entity/components/TableComponent';
+import { TABLE_ENTITY_ID } from './entity/tableEntity';
 import { TABLE_SURFACE_Y } from './scene/Table';
 import { type ChannelMessage } from './net/SceneState';
 import { type SeatIndex } from './seats/SeatLayout';
@@ -117,6 +120,7 @@ export function ThreeCanvas({
 
     const cursorTracker = new CursorTracker();
     const cursorOverlay = new CursorOverlay(scene);
+    const seatOverlay   = new SeatOverlay(scene);
     let   pingOverlay: PingOverlay | null = null;
 
     // Local pointer state — raycast onto the table plane and broadcast at
@@ -420,6 +424,12 @@ export function ThreeCanvas({
       cursorOverlay.sync(cursorTracker.all());
       pingOverlay?.update(dt);
 
+      // SeatOverlay — visible only while the Table is the selected entity.
+      // Reads stored seat poses straight off the Table's component state.
+      const tableHandle = world.get(TABLE_ENTITY_ID);
+      const tableSeats  = tableHandle?.entity.getComponent(TableComponent)?.state.seats;
+      seatOverlay.sync(tableSeats, highlightId === TABLE_ENTITY_ID);
+
       // Drive zone debug-mesh visibility from selection + global toggle.
       world.forEach((h) => h.entity.getComponent(ZoneComponent)?.updateDebugVisibility());
 
@@ -462,6 +472,7 @@ export function ThreeCanvas({
       unsubscribeSnd();
       pingOverlay?.dispose();
       pingOverlay = null;
+      seatOverlay.dispose();
       cursorOverlay.dispose();
       cursorTracker.clear();
       unsubscribe();
