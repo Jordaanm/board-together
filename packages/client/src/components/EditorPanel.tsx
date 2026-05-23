@@ -4,6 +4,8 @@ import { type SpawnableType } from '../net/SceneState';
 import { type ComponentSchemaSection, type PropertyDef } from '../entity/propertySchema';
 import { getSpawnable } from '../entity/SpawnableRegistry';
 import { SEAT_COLOURS } from '../seats/SeatLayout';
+import { defaultSeatStates, normalizeYawDegrees, type SeatState } from '../seats/SeatPoseState';
+import { type RoomStateSnapshot } from '../seats/RoomState';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
 import { type ManifestStore } from '../assets/ManifestStore';
 import { type AssetType } from '../assets/Manifest';
@@ -43,6 +45,17 @@ interface Props {
   isFreeCamera:         boolean;
   manifestStore:        ManifestStore | null;
   selectedTools:        EditorToolItem[];
+  // Current Table half-extents — used by the Seats section's "Reset all"
+  // button to compute fresh defaults. Returns null when the Table has not
+  // yet spawned.
+  getTableBounds:       () => { halfWidth: number; halfDepth: number } | null;
+  // Live room state — drives the Occupant column of the Seats section.
+  roomSnapshot:         RoomStateSnapshot | null;
+  // Index of the seat currently being edited via the 3D gizmo, or null
+  // when no seat is in gizmo-edit mode. Drives the Edit / Done toggle in
+  // the Seats section. Wired up by Issue #5.
+  editingSeatIndex:     number | null;
+  onSetEditingSeatIndex: (i: number | null) => void;
   onSelect:             (id: string | null) => void;
   onRollDice:           () => void;
   // Entity-level field write (name, tags, owner). Routes through
@@ -176,6 +189,8 @@ const CHIP_X: React.CSSProperties = {
 export function EditorPanel({
   objects, selectedId, isFreeCamera,
   manifestStore, selectedTools,
+  getTableBounds, roomSnapshot,
+  editingSeatIndex, onSetEditingSeatIndex,
   onSelect, onRollDice,
   onUpdateEntityField, onUpdateComponentProp,
   onToggleFreeCamera, onToolAction,
@@ -222,6 +237,16 @@ export function EditorPanel({
             onDeleteEntity={onDeleteEntity}
             onDuplicateEntity={onDuplicateEntity}
           />
+          {selected?.id === TABLE_ENTITY_ID && (
+            <SeatsSection
+              table={selected}
+              roomSnapshot={roomSnapshot}
+              getTableBounds={getTableBounds}
+              editingSeatIndex={editingSeatIndex}
+              onSetEditingSeatIndex={onSetEditingSeatIndex}
+              onUpdateComponentProp={onUpdateComponentProp}
+            />
+          )}
           {selected?.surface && (
             <SurfaceElementsSection
               surfaceId={selected.id}
@@ -1471,4 +1496,228 @@ function RichKindRow({
 function numberOr(raw: string, fallback: number): number {
   const n = parseFloat(raw);
   return Number.isFinite(n) ? n : fallback;
+}
+
+// ── Seats Section ──────────────────────────────────────────────────────
+
+const SEAT_ROW: React.CSSProperties = {
+  display:             'grid',
+  gridTemplateColumns: '20px 1fr 1fr 44px 56px',
+  gap:                 4,
+  alignItems:          'center',
+  marginBottom:        4,
+};
+
+const SEAT_SWATCH: React.CSSProperties = {
+  width:           14,
+  height:          14,
+  borderRadius:    3,
+  border:          '1px solid var(--line-strong)',
+  flex:            '0 0 auto',
+  display:         'inline-block',
+};
+
+const SEAT_INPUT: React.CSSProperties = {
+  ...INPUT,
+  padding:  '3px 4px',
+  fontSize: 11,
+};
+
+const SEAT_OCCUPANT: React.CSSProperties = {
+  fontSize:     11,
+  color:        'var(--ink-mute)',
+  whiteSpace:   'nowrap',
+  overflow:     'hidden',
+  textOverflow: 'ellipsis',
+};
+
+const SEAT_EDIT_BTN: React.CSSProperties = {
+  background:   'var(--bg)',
+  border:       '1px solid var(--line)',
+  color:        'var(--ink)',
+  padding:      '3px 6px',
+  borderRadius: 3,
+  cursor:       'pointer',
+  fontSize:     11,
+  fontFamily:   'inherit',
+};
+
+function SeatsSection({
+  table, roomSnapshot, getTableBounds,
+  editingSeatIndex, onSetEditingSeatIndex,
+  onUpdateComponentProp,
+}: {
+  table:                 ObjectSummary;
+  roomSnapshot:          RoomStateSnapshot | null;
+  getTableBounds:        () => { halfWidth: number; halfDepth: number } | null;
+  editingSeatIndex:      number | null;
+  onSetEditingSeatIndex: (i: number | null) => void;
+  onUpdateComponentProp: (id: string, typeId: string, key: string, value: unknown) => void;
+}) {
+  const tableSection = table.sections.find(s => s.typeId === 'table');
+  const seats = (tableSection?.state.seats as SeatState[] | undefined) ?? [];
+
+  const writeSeats = (next: SeatState[]) => {
+    onUpdateComponentProp(TABLE_ENTITY_ID, 'table', 'seats', next);
+  };
+
+  const updateSeat = (index: number, patch: Partial<SeatState>) => {
+    const next = seats.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    writeSeats(next);
+  };
+
+  const resetAll = () => {
+    const bounds = getTableBounds();
+    if (!bounds) return;
+    writeSeats(defaultSeatStates(bounds));
+  };
+
+  return (
+    <div style={SECTION}>
+      <div style={{ ...SECTION_HEADER, marginBottom: 8 }}>
+        <div style={{ ...SECTION_LABEL, marginBottom: 0 }}>Seats</div>
+        <button
+          type="button"
+          style={{
+            ...SEAT_EDIT_BTN,
+            padding: '3px 8px',
+          }}
+          onClick={resetAll}
+        >
+          Reset all seats
+        </button>
+      </div>
+      {seats.length === 0 && (
+        <div style={{ color: 'var(--ink-mute)', fontSize: 12 }}>No seats configured.</div>
+      )}
+      {seats.map((seat, i) => (
+        <SeatRow
+          key={i}
+          index={i}
+          seat={seat}
+          occupantName={resolveOccupant(roomSnapshot, i)}
+          isEditing={editingSeatIndex === i}
+          onToggleEdit={() => onSetEditingSeatIndex(editingSeatIndex === i ? null : i)}
+          onUpdate={(patch) => updateSeat(i, patch)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SeatRow({
+  index, seat, occupantName, isEditing, onToggleEdit, onUpdate,
+}: {
+  index:        number;
+  seat:         SeatState;
+  occupantName: string;
+  isEditing:    boolean;
+  onToggleEdit: () => void;
+  onUpdate:     (patch: Partial<SeatState>) => void;
+}) {
+  return (
+    <div style={SEAT_ROW}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ ...SEAT_SWATCH, background: SEAT_COLOURS[index] }} />
+      </div>
+      <SeatNumberInput
+        title={`Seat ${index} X`}
+        value={seat.x}
+        format={fmt2}
+        parse={(raw) => numberOr(raw, seat.x)}
+        onCommit={(v) => onUpdate({ x: v })}
+      />
+      <SeatNumberInput
+        title={`Seat ${index} Z`}
+        value={seat.z}
+        format={fmt2}
+        parse={(raw) => numberOr(raw, seat.z)}
+        onCommit={(v) => onUpdate({ z: v })}
+      />
+      <SeatNumberInput
+        title={`Seat ${index} yaw (degrees)`}
+        value={radToDegInt(seat.yaw)}
+        format={fmtInt}
+        parse={(raw) => {
+          const n = parseFloat(raw);
+          if (!Number.isFinite(n)) return radToDegInt(seat.yaw);
+          return normalizeYawDegrees(Math.round(n));
+        }}
+        onCommit={(deg) => onUpdate({ yaw: (deg * Math.PI) / 180 })}
+      />
+      <button
+        type="button"
+        style={{
+          ...SEAT_EDIT_BTN,
+          background: isEditing
+            ? 'color-mix(in oklab, var(--accent) 22%, transparent)'
+            : 'var(--bg)',
+        }}
+        title={`Drag seat ${index} in 3D`}
+        onClick={onToggleEdit}
+      >
+        {isEditing ? 'Done' : 'Edit'}
+      </button>
+      <div style={{ ...SEAT_OCCUPANT, gridColumn: '2 / span 4', marginTop: -2 }}>
+        {occupantName || '—'}
+      </div>
+    </div>
+  );
+}
+
+function SeatNumberInput({
+  title, value, format, parse, onCommit,
+}: {
+  title:    string;
+  value:    number;
+  format:   (n: number) => string;
+  parse:    (raw: string) => number;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState(() => format(value));
+  // Reflect external edits (gizmo drag, remote replication) into the input
+  // unless the user is mid-edit. Compare formatted values so a tiny float
+  // drift doesn't ping-pong the field while typing.
+  useEffect(() => { setDraft(format(value)); }, [value, format]);
+
+  const commit = () => {
+    const next = parse(draft);
+    if (next !== value) onCommit(next);
+    setDraft(format(next));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      style={SEAT_INPUT}
+      title={title}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        else if (e.key === 'Escape') { setDraft(format(value)); (e.target as HTMLInputElement).blur(); }
+      }}
+    />
+  );
+}
+
+function fmt2(n: number): string {
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
+
+function fmtInt(n: number): string {
+  return String(Math.round(Number.isFinite(n) ? n : 0));
+}
+
+function radToDegInt(rad: number): number {
+  return normalizeYawDegrees(Math.round((rad * 180) / Math.PI));
+}
+
+function resolveOccupant(snap: RoomStateSnapshot | null, seatIndex: number): string {
+  if (!snap) return '';
+  const entry = snap.seats.find(s => s.index === seatIndex);
+  if (!entry?.peerId) return '';
+  return snap.names?.[entry.peerId] ?? entry.peerId.slice(0, 8);
 }

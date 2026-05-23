@@ -95,6 +95,7 @@ export function Room({ roomId, isHost }: Props) {
   const [bundleStore, setBundleStore]       = useState<BundleStore | null>(null);
   const [bundleCache, setBundleCache]       = useState<BundleCache | null>(null);
   const [handle, setHandle]                 = useState<SceneHandle | null>(null);
+  const [editingSeatIndex, setEditingSeatIndex] = useState<number | null>(null);
   const [inspectDialog, setInspectDialog] = useState<{
     deckId:   string;
     deckName: string;
@@ -813,6 +814,10 @@ export function Room({ roomId, isHost }: Props) {
               isFreeCamera={isFreeCamera}
               manifestStore={manifestStore}
               selectedTools={selectedTools}
+              getTableBounds={() => handle.controller.getTableBounds()}
+              roomSnapshot={roomSnapshot}
+              editingSeatIndex={editingSeatIndex}
+              onSetEditingSeatIndex={setEditingSeatIndex}
               onSelect={setSelectedId}
               onRollDice={() => handle.controller.forEach((h) => h.entity.getComponent(DiceComponent)?.roll())}
               onUpdateEntityField={(id, key, value) => handle.controller.updateEntityField(id, key, value)}

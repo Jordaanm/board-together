@@ -16,6 +16,10 @@ function renderPanel(objects: ObjectSummary[], selectedId: string | null) {
         isFreeCamera={false}
         manifestStore={null}
         selectedTools={[]}
+        getTableBounds={() => null}
+        roomSnapshot={null}
+        editingSeatIndex={null}
+        onSetEditingSeatIndex={noop}
         onSelect={noop}
         onRollDice={noop}
         onUpdateEntityField={noop}
