@@ -531,6 +531,17 @@ function readEntryValue(def: PropertyDef, state: Record<string, unknown>): unkno
 function TagsRow({
   tags, onChange,
 }: { tags: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <label style={{ display: 'block', color: 'var(--ink-mute)', fontSize: 11, marginBottom: 3 }}>Tags</label>
+      <TagsEditor tags={tags} onChange={onChange} />
+    </div>
+  );
+}
+
+function TagsEditor({
+  tags, onChange,
+}: { tags: string[]; onChange: (next: string[]) => void }) {
   const [draft, setDraft] = useState('');
 
   const commit = () => {
@@ -542,8 +553,7 @@ function TagsRow({
   const remove = (t: string) => onChange(tags.filter(x => x !== t));
 
   return (
-    <div style={{ marginBottom: 8 }}>
-      <label style={{ display: 'block', color: 'var(--ink-mute)', fontSize: 11, marginBottom: 3 }}>Tags</label>
+    <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
         {tags.map(t => (
           <span key={t} style={CHIP}>
@@ -570,7 +580,7 @@ function TagsRow({
         }}
         onBlur={commit}
       />
-    </div>
+    </>
   );
 }
 
@@ -765,6 +775,12 @@ function SchemaPropertyRow({
       )}
       {def.type === 'seat' && (
         <SeatSelect value={value as number} onChange={onChange} />
+      )}
+      {def.type === 'tags' && (
+        <TagsEditor
+          tags={Array.isArray(value) ? (value as string[]) : []}
+          onChange={(next) => onChange(next)}
+        />
       )}
       {assetType && (
         <AssetField

@@ -53,6 +53,21 @@ describe('BagComponent — serialization', () => {
     expect(fresh.state.acceptComponents).toEqual(['mesh', 'physics']);
   });
 
+  test('toJSON / fromJSON round-trip preserves requiredTags', () => {
+    const bag = scene.spawn('bag', ctx);
+    const bagC = bag.getComponent(BagComponent)!;
+    bagC.state.requiredTags = ['red', 'small'];
+    const fresh = new BagComponent();
+    fresh.fromJSON(bagC.toJSON());
+    expect(fresh.state.requiredTags).toEqual(['red', 'small']);
+  });
+
+  test('toJSON omits requiredTags when undefined', () => {
+    const bag = scene.spawn('bag', ctx);
+    const json = bag.getComponent(BagComponent)!.toJSON() as Record<string, unknown>;
+    expect('requiredTags' in json).toBe(false);
+  });
+
   test('toJSON / fromJSON round-trip preserves label', () => {
     const bag = scene.spawn('bag', ctx);
     const bagC = bag.getComponent(BagComponent)!;
@@ -134,6 +149,36 @@ describe('BagComponent.canAccept', () => {
     const outer = scene.spawn('bag', ctx);
     const inner = scene.spawn('bag', ctx);
     expect(outer.getComponent(BagComponent)!.canAccept(inner)).toBe(true);
+  });
+
+  test('respects requiredTags — accepts when entity has all listed tags', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    die.tags = ['red', 'small'];
+    bag.getComponent(BagComponent)!.state.requiredTags = ['red', 'small'];
+    expect(bag.getComponent(BagComponent)!.canAccept(die)).toBe(true);
+  });
+
+  test('respects requiredTags — refuses when entity is missing a tag', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    die.tags = ['red'];
+    bag.getComponent(BagComponent)!.state.requiredTags = ['red', 'small'];
+    expect(bag.getComponent(BagComponent)!.canAccept(die)).toBe(false);
+  });
+
+  test('respects requiredTags — refuses untagged entity', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    bag.getComponent(BagComponent)!.state.requiredTags = ['red'];
+    expect(bag.getComponent(BagComponent)!.canAccept(die)).toBe(false);
+  });
+
+  test('empty requiredTags array imposes no constraint', () => {
+    const bag = scene.spawn('bag', ctx);
+    const die = scene.spawn('die', ctx);
+    bag.getComponent(BagComponent)!.state.requiredTags = [];
+    expect(bag.getComponent(BagComponent)!.canAccept(die)).toBe(true);
   });
 });
 

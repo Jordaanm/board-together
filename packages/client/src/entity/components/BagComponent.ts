@@ -1,9 +1,9 @@
 // Heterogeneous container for arbitrary entities. Issue #1 of issues--bag.md.
 //
-// Owns `contents: string[]` (entity ids, insertion order) and an optional
-// `acceptComponents` filter. Exposes `canAccept(entity)` for MergeService's
-// release-recheck path (issue #2). `onTryGrab` returns null in this slice;
-// the random-pick gesture lands in issue #3.
+// Owns `contents: string[]` (entity ids, insertion order) plus optional
+// `acceptComponents` and `requiredTags` filters. Exposes `canAccept(entity)`
+// for MergeService's release-recheck path (issue #2). `onTryGrab` returns
+// null in this slice; the random-pick gesture lands in issue #3.
 
 import {
   EntityComponent,
@@ -22,6 +22,9 @@ export interface BagState {
   // Per-instance, host-editable, replicated.
   label:             string;
   acceptComponents?: string[];
+  // Optional tag whitelist. Entity must carry every tag in this list (AND-match)
+  // to be admitted by canAccept. Empty / undefined means no constraint.
+  requiredTags?:     string[];
 }
 
 export class BagComponent extends EntityComponent<BagState> {
@@ -30,6 +33,16 @@ export class BagComponent extends EntityComponent<BagState> {
   static requires = ['transform', 'mesh', 'physics'] as const;
   static propertySchema: readonly PropertyDef<BagState>[] = [
     { key: 'label', label: 'Label', type: 'string' },
+    {
+      key:   'requiredTags',
+      label: 'Required tags',
+      type:  'tags',
+      get:   (s) => s.requiredTags ?? [],
+      set:   (v) => {
+        const next = Array.isArray(v) ? (v as string[]).filter(t => typeof t === 'string') : [];
+        return next.length > 0 ? { requiredTags: next } : { requiredTags: undefined };
+      },
+    },
   ];
 
   onSpawn(_ctx: SpawnContext): void {}
@@ -43,6 +56,9 @@ export class BagComponent extends EntityComponent<BagState> {
     if (this.state.acceptComponents !== undefined) {
       out.acceptComponents = [...this.state.acceptComponents];
     }
+    if (this.state.requiredTags !== undefined) {
+      out.requiredTags = [...this.state.requiredTags];
+    }
     return out;
   }
 
@@ -54,13 +70,16 @@ export class BagComponent extends EntityComponent<BagState> {
       ...(raw.acceptComponents !== undefined
         ? { acceptComponents: [...raw.acceptComponents] }
         : {}),
+      ...(raw.requiredTags !== undefined
+        ? { requiredTags: [...raw.requiredTags] }
+        : {}),
     };
   }
 
   // Gate consulted by MergeService.recheckMergeOverlaps. Refuses Zones / the
   // Table singleton (ambient fixtures that must never get absorbed), refuses
   // ancestors of this bag (cycle guard for bag-in-bag-in-bag), and respects
-  // the optional acceptComponents whitelist when set.
+  // the optional acceptComponents + requiredTags whitelists when set.
   canAccept(entity: Entity): boolean {
     if (entity === this.entity) return false;
     if (entity.hasComponent(ZoneComponent))       return false;
@@ -71,6 +90,12 @@ export class BagComponent extends EntityComponent<BagState> {
     if (filter && filter.length > 0) {
       for (const typeId of filter) {
         if (!entity.components.has(typeId)) return false;
+      }
+    }
+    const tags = this.state.requiredTags;
+    if (tags && tags.length > 0) {
+      for (const tag of tags) {
+        if (!entity.tags.includes(tag)) return false;
       }
     }
     return true;
