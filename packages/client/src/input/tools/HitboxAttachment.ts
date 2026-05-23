@@ -4,6 +4,7 @@
 // toggle: when off, attach() is a silent no-op.
 
 import * as THREE from 'three';
+import type * as CANNON from 'cannon-es';
 import { type EntityHandle } from '../../entity/world';
 import { PhysicsComponent } from '../../entity/components/PhysicsComponent';
 import { buildHitboxWireframe } from '../../physics/hitboxWireframe';
@@ -12,7 +13,12 @@ import { type ToolAttachment, type ToolContext } from './types';
 export class HitboxAttachment implements ToolAttachment {
   private attached = false;
   private group:    THREE.Group | null = null;
-  private body:     import('cannon-es').Body | null = null;
+  private body:     CANNON.Body | null = null;
+  // Snapshot of the shape refs used to build the current wireframe children.
+  // PhysicsComponent.rebuildShape swaps refs when the sibling mesh changes;
+  // update() compares against this list and rebuilds the wireframe so the
+  // debug overlay tracks the live collision shape.
+  private builtShapes: CANNON.Shape[] = [];
 
   constructor(private readonly scene: THREE.Scene) {}
 
@@ -44,24 +50,17 @@ export class HitboxAttachment implements ToolAttachment {
     const group = new THREE.Group();
     group.name = 'HitboxAttachment';
     group.renderOrder = 999;
-    for (let i = 0; i < phys.body.shapes.length; i++) {
-      const shape = phys.body.shapes[i];
-      const offset = phys.body.shapeOffsets[i];
-      const orient = phys.body.shapeOrientations[i];
-      const wire   = buildHitboxWireframe(shape);
-      wire.position.set(offset.x, offset.y, offset.z);
-      wire.quaternion.set(orient.x, orient.y, orient.z, orient.w);
-      group.add(wire);
-    }
+    buildShapeChildren(group, phys.body);
     const bodyPos = phys.body.position;
     const bodyQuat = phys.body.quaternion;
     group.position.set(bodyPos.x, bodyPos.y, bodyPos.z);
     group.quaternion.set(bodyQuat.x, bodyQuat.y, bodyQuat.z, bodyQuat.w);
 
     this.scene.add(group);
-    this.group    = group;
-    this.body     = phys.body;
-    this.attached = true;
+    this.group       = group;
+    this.body        = phys.body;
+    this.builtShapes = [...phys.body.shapes];
+    this.attached    = true;
   }
 
   detach(): void {
@@ -70,21 +69,53 @@ export class HitboxAttachment implements ToolAttachment {
       this.scene.remove(this.group);
       disposeGroup(this.group);
     }
-    this.group    = null;
-    this.body     = null;
-    this.attached = false;
+    this.group       = null;
+    this.body        = null;
+    this.builtShapes = [];
+    this.attached    = false;
   }
 
   update(_dt: number): void {
     if (!this.attached || !this.group || !this.body) return;
+    if (this.shapesChanged()) this.refreshShapes();
     const p = this.body.position;
     const q = this.body.quaternion;
     this.group.position.set(p.x, p.y, p.z);
     this.group.quaternion.set(q.x, q.y, q.z, q.w);
   }
 
+  private shapesChanged(): boolean {
+    if (!this.body) return false;
+    const cur = this.body.shapes;
+    if (cur.length !== this.builtShapes.length) return true;
+    for (let i = 0; i < cur.length; i++) {
+      if (cur[i] !== this.builtShapes[i]) return true;
+    }
+    return false;
+  }
+
+  private refreshShapes(): void {
+    if (!this.group || !this.body) return;
+    disposeGroup(this.group);
+    while (this.group.children.length) this.group.remove(this.group.children[0]);
+    buildShapeChildren(this.group, this.body);
+    this.builtShapes = [...this.body.shapes];
+  }
+
   isAttached(): boolean {
     return this.attached;
+  }
+}
+
+function buildShapeChildren(group: THREE.Group, body: CANNON.Body): void {
+  for (let i = 0; i < body.shapes.length; i++) {
+    const shape  = body.shapes[i];
+    const offset = body.shapeOffsets[i];
+    const orient = body.shapeOrientations[i];
+    const wire   = buildHitboxWireframe(shape);
+    wire.position.set(offset.x, offset.y, offset.z);
+    wire.quaternion.set(orient.x, orient.y, orient.z, orient.w);
+    group.add(wire);
   }
 }
 
