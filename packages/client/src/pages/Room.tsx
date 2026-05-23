@@ -109,6 +109,7 @@ export function Room({ roomId, isHost }: Props) {
   const getSelfSeatRef     = useRef<() => SeatIndex | null>(() => null);
   const getSelfPeerIdRef   = useRef<() => string | null>(() => null);
   const getPeerSeatRef     = useRef<(peerId: string) => SeatIndex | null>(() => null);
+  const getRoomSnapshotRef = useRef<() => RoomStateSnapshot | null>(() => null);
   const onMsgRef           = useRef<(peerId: string, msg: ChannelMessage) => void>(noop);
   const onPeerLeftRef      = useRef<(peerId: string) => void>(noop);
   const onPeerJoinedRef    = useRef<(peerId: string) => void>(noop);
@@ -143,6 +144,7 @@ export function Room({ roomId, isHost }: Props) {
   onSelectRef.current        = (id) => setSelectedId(id);
   getActiveToolRef.current   = () => activeToolId;
   setHandViewRef.current     = (view) => setHandView(view);
+  getRoomSnapshotRef.current = () => roomSnapshot;
 
   const objects = useSceneObjects(handle?.controller ?? null, isHost);
 
@@ -691,6 +693,7 @@ export function Room({ roomId, isHost }: Props) {
         getSelfSeatRef={getSelfSeatRef}
         getSelfPeerIdRef={getSelfPeerIdRef}
         getPeerSeatRef={getPeerSeatRef}
+        getRoomSnapshotRef={getRoomSnapshotRef}
         onMsgRef={onMsgRef}
         onPeerLeftRef={onPeerLeftRef}
         onPeerJoinedRef={onPeerJoinedRef}

@@ -33,6 +33,7 @@ import { TABLE_ENTITY_ID } from './entity/tableEntity';
 import { TABLE_SURFACE_Y } from './scene/Table';
 import { type ChannelMessage } from './net/SceneState';
 import { type SeatIndex } from './seats/SeatLayout';
+import { type RoomStateSnapshot } from './seats/RoomState';
 
 export interface ReplicationTarget {
   peerId:   string;
@@ -48,6 +49,7 @@ interface Props {
   getSelfSeatRef:      MutableRefObject<() => SeatIndex | null>;
   getSelfPeerIdRef:    MutableRefObject<() => string | null>;
   getPeerSeatRef:      MutableRefObject<(peerId: string) => SeatIndex | null>;
+  getRoomSnapshotRef:  MutableRefObject<() => RoomStateSnapshot | null>;
   onMsgRef:            MutableRefObject<(peerId: string, msg: ChannelMessage) => void>;
   onPeerLeftRef:       MutableRefObject<(peerId: string) => void>;
   onPeerJoinedRef:     MutableRefObject<(peerId: string) => void>;
@@ -75,6 +77,7 @@ export interface HandView {
 
 export function ThreeCanvas({
   isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
+  getRoomSnapshotRef,
   onMsgRef, onPeerLeftRef, onPeerJoinedRef,
   onContextMenuRef,
   isMenuOpenRef,
@@ -424,11 +427,18 @@ export function ThreeCanvas({
       cursorOverlay.sync(cursorTracker.all());
       pingOverlay?.update(dt);
 
-      // SeatOverlay — visible only while the Table is the selected entity.
-      // Reads stored seat poses straight off the Table's component state.
+      // SeatOverlay — disk + chevron markers visible only when the Table is
+      // selected; per-occupied-seat name planes always visible. Reads stored
+      // seat poses off the Table component and occupant / names off the
+      // current RoomState snapshot.
       const tableHandle = world.get(TABLE_ENTITY_ID);
       const tableSeats  = tableHandle?.entity.getComponent(TableComponent)?.state.seats;
-      seatOverlay.sync(tableSeats, highlightId === TABLE_ENTITY_ID);
+      const snap        = getRoomSnapshotRef.current();
+      seatOverlay.sync({
+        seats:    tableSeats,
+        selected: highlightId === TABLE_ENTITY_ID,
+        names:    resolveSeatNames(snap),
+      });
 
       // Drive zone debug-mesh visibility from selection + global toggle.
       world.forEach((h) => h.entity.getComponent(ZoneComponent)?.updateDebugVisibility());
@@ -498,6 +508,7 @@ export function ThreeCanvas({
     };
   }, [
     isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
+    getRoomSnapshotRef,
     onMsgRef, onPeerLeftRef, onPeerJoinedRef,
     onContextMenuRef,
     isMenuOpenRef,
@@ -548,4 +559,17 @@ function deriveHandView(world: World, selfSeat: SeatIndex | null): HandView | nu
 function handViewKey(view: HandView | null): string {
   if (!view) return '';
   return view.handEntityId + '|' + view.cards.map(c => c.id + ':' + c.textureRef).join(',');
+}
+
+// Resolve the per-seat display name array (length 8) from the room snapshot.
+// Empty string means the seat is vacant; SeatOverlay skips its name plane.
+// Mirrors the PlayersPanel fallback of names[peerId] ?? peerId.slice(0, 8).
+function resolveSeatNames(snap: RoomStateSnapshot | null): string[] {
+  const out: string[] = ['', '', '', '', '', '', '', ''];
+  if (!snap) return out;
+  for (const entry of snap.seats) {
+    if (!entry.peerId) continue;
+    out[entry.index] = snap.names?.[entry.peerId] ?? entry.peerId.slice(0, 8);
+  }
+  return out;
 }
