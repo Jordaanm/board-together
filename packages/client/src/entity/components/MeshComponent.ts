@@ -190,6 +190,7 @@ export class MeshComponent extends EntityComponent<MeshState> {
     if (this.state.meshRef === 'prim:d20')  return 'icosahedron';
     if (this.state.meshRef === 'prim:card') return 'cube';
     if (this.state.meshRef === 'prim:deck') return 'cube';
+    if (this.state.meshRef === 'prim:page') return 'cube';
     if (this.state.meshRef === 'prim:plane') return 'cube';
     if (this.state.meshRef === 'prim:table-rect')   return 'cube';
     if (this.state.meshRef === 'prim:table-circle') return 'cylinder';
@@ -407,6 +408,7 @@ function buildMesh(meshRef: string, size: Dims): THREE.Object3D {
   if (meshRef === 'prim:d20')  return buildD20(size);
   if (meshRef === 'prim:card') return buildCard(size);
   if (meshRef === 'prim:deck') return buildDeck(size);
+  if (meshRef === 'prim:page') return buildPage(size);
   if (meshRef === 'prim:plane') return buildPlane(size);
   if (meshRef === 'prim:table-rect')   return buildTableRect(size);
   if (meshRef === 'prim:table-circle') return buildTableCircle(size);
@@ -435,6 +437,7 @@ function halfExtentsFor(meshRef: string, size: Dims): [number, number, number] {
     meshRef === 'prim:d6'   ||
     meshRef === 'prim:card' ||
     meshRef === 'prim:deck' ||
+    meshRef === 'prim:page' ||
     meshRef === 'prim:table-rect'
   ) {
     const [w, h, d] = size;
@@ -584,6 +587,32 @@ function buildCard(size: Dims): THREE.Object3D {
   // BoxGeometry creates one group per face in order +X, -X, +Y, -Y, +Z, -Z
   // with materialIndex 0..5. Remap so +Y/-Y bind to face/back materials, the
   // rest to a shared side material.
+  geometry.groups[0].materialIndex = 2; // +X side
+  geometry.groups[1].materialIndex = 2; // -X side
+  geometry.groups[2].materialIndex = 0; // +Y face
+  geometry.groups[3].materialIndex = 1; // -Y back
+  geometry.groups[4].materialIndex = 2; // +Z side
+  geometry.groups[5].materialIndex = 2; // -Z side
+
+  const faceMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  faceMat.userData = { materialSlot: 'face' };
+  const backMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  backMat.userData = { materialSlot: 'back' };
+  const sideMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  sideMat.userData = { materialSlot: 'side' };
+
+  const mesh = new THREE.Mesh(geometry, [faceMat, backMat, sideMat]);
+  mesh.castShadow    = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// prim:page — thin BoxGeometry with three material slots (face / back /
+// side) matching prim:card's slot layout. Used by the PDF entity; default
+// dimensions match a letter-paper aspect ratio.
+function buildPage(size: Dims): THREE.Object3D {
+  const [w, h, d] = size;
+  const geometry = new THREE.BoxGeometry(w, h, d);
   geometry.groups[0].materialIndex = 2; // +X side
   geometry.groups[1].materialIndex = 2; // -X side
   geometry.groups[2].materialIndex = 0; // +Y face

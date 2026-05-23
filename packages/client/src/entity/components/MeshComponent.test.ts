@@ -139,6 +139,76 @@ describe('MeshComponent — prim:plane', () => {
   });
 });
 
+describe('MeshComponent — prim:page', () => {
+  function spawnPage(state: Partial<MeshState> = {}): { entity: Entity; mesh: MeshComponent } {
+    const entity = new Entity({ id: 'pg-1', type: 'pdf', name: 'Page' });
+    const transform = new TransformComponent();
+    transform.fromJSON({ position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+    entity.attachComponent(transform);
+    const mesh = new MeshComponent();
+    mesh.fromJSON({
+      meshRef:     'prim:page',
+      textureRefs: { face: '', back: '', side: '' },
+      color:       '#ffffff',
+      width: 1.0, height: 0.02, depth: 1.29,
+      ...state,
+    });
+    entity.attachComponent(mesh);
+    transform.onSpawn(ctx);
+    mesh.onSpawn(ctx);
+    return { entity, mesh };
+  }
+
+  test('builds a single BoxGeometry mesh with three materials and sharp corners', () => {
+    const { mesh } = spawnPage();
+    expect(mesh.group.children.length).toBe(1);
+    const child = mesh.group.children[0] as THREE.Mesh;
+    expect(child).toBeInstanceOf(THREE.Mesh);
+    // BoxGeometry — sharp corners. RoundedBoxGeometry would surface its own
+    // class on the geometry property.
+    expect(child.geometry.constructor.name).toBe('BoxGeometry');
+    expect(Array.isArray(child.material)).toBe(true);
+    expect((child.material as THREE.Material[]).length).toBe(3);
+  });
+
+  test('face/back/side material slots map to +Y / -Y / sides (mirrors prim:card)', () => {
+    const { mesh } = spawnPage();
+    const child = mesh.group.children[0] as THREE.Mesh;
+    const mats  = child.material as THREE.Material[];
+    expect(mats[0].userData.materialSlot).toBe('face');
+    expect(mats[1].userData.materialSlot).toBe('back');
+    expect(mats[2].userData.materialSlot).toBe('side');
+    const groups = child.geometry.groups;
+    expect(groups[2].materialIndex).toBe(0); // +Y → face
+    expect(groups[3].materialIndex).toBe(1); // -Y → back
+    expect(groups[0].materialIndex).toBe(2); // +X → side
+    expect(groups[4].materialIndex).toBe(2); // +Z → side
+  });
+
+  test('halfExtents returns [width/2, height/2, depth/2]', () => {
+    const { mesh } = spawnPage({ width: 1.0, height: 0.02, depth: 1.29 });
+    expect(mesh.halfExtents()).toEqual([0.5, 0.01, 0.645]);
+  });
+
+  test('meshKind returns "cube"', () => {
+    const { mesh } = spawnPage();
+    expect(mesh.meshKind()).toBe('cube');
+  });
+
+  test('hitbox follows width/height/depth changes', () => {
+    const { mesh } = spawnPage();
+    mesh.setState({ width: 2, height: 0.04, depth: 2.58 });
+    expect(mesh.halfExtents()).toEqual([1, 0.02, 1.29]);
+    // After dimension change, MeshComponent rebuilds the group so the
+    // BoxGeometry parameters track the new dims.
+    const child = mesh.group.children[0] as THREE.Mesh;
+    const params = (child.geometry as THREE.BoxGeometry).parameters;
+    expect(params.width).toBe(2);
+    expect(params.height).toBe(0.04);
+    expect(params.depth).toBe(2.58);
+  });
+});
+
 describe('MeshComponent — isContained visibility', () => {
   test('group.visible is true on spawn when entity is not contained', () => {
     const e = scene.spawn('card', ctx);
