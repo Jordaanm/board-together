@@ -12,6 +12,8 @@ import { TableComponent } from './TableComponent';
 import { MeshComponent } from './MeshComponent';
 import { TransformComponent } from './TransformComponent';
 import { TABLE_ENTITY_ID } from '../tableEntity';
+import { defaultSeatStates, seatPoseFromState } from '../../seats/SeatPoseState';
+import { computeSeatLayout } from '../../seats/SeatLayout';
 
 let scene: SceneImpl;
 let ctx:   SpawnContext;
@@ -78,6 +80,75 @@ describe('Scene.getTable / getTableBounds', () => {
     const b = scene.getTableBounds();
     expect(b.halfWidth).toBeCloseTo(18, 5);
     expect(b.halfDepth).toBeCloseTo(12, 5);
+  });
+});
+
+describe('TableComponent — seat state', () => {
+  test('spawning Table without seats populates 8 default states from current bounds', () => {
+    const e = scene.spawn('table', ctx, { id: TABLE_ENTITY_ID });
+    const t = e.getComponent(TableComponent)!;
+    const expected = defaultSeatStates({ halfWidth: 6, halfDepth: 4 });
+    expect(t.state.seats).toHaveLength(8);
+    for (let i = 0; i < 8; i++) {
+      expect(t.state.seats![i].x).toBeCloseTo(expected[i].x, 10);
+      expect(t.state.seats![i].z).toBeCloseTo(expected[i].z, 10);
+      expect(t.state.seats![i].yaw).toBeCloseTo(expected[i].yaw, 10);
+    }
+  });
+
+  test('defaults match prior computeSeatLayout output for canonical bounds', () => {
+    const e = scene.spawn('table', ctx, { id: TABLE_ENTITY_ID });
+    const t = e.getComponent(TableComponent)!;
+    const layout = computeSeatLayout({ halfWidth: 6, halfDepth: 4 });
+    for (let i = 0; i < 8; i++) {
+      const pose = seatPoseFromState(t.state.seats![i]);
+      expect(pose.position.x).toBeCloseTo(layout[i].position.x, 10);
+      expect(pose.position.z).toBeCloseTo(layout[i].position.z, 10);
+      expect(pose.facing.x).toBeCloseTo(layout[i].facing.x, 10);
+      expect(pose.facing.z).toBeCloseTo(layout[i].facing.z, 10);
+    }
+  });
+
+  test('load() with provided seats array stores it verbatim', () => {
+    const provided = [
+      { x: 1.5, z: 2.5, yaw: 0.1 },
+      { x: 2.5, z: 3.5, yaw: 0.2 },
+      { x: 3.5, z: 4.5, yaw: 0.3 },
+      { x: 4.5, z: 5.5, yaw: 0.4 },
+      { x: 5.5, z: 6.5, yaw: 0.5 },
+      { x: 6.5, z: 7.5, yaw: 0.6 },
+      { x: 7.5, z: 8.5, yaw: 0.7 },
+      { x: 8.5, z: 9.5, yaw: 0.8 },
+    ];
+    const loaded = scene.load([{
+      id:            TABLE_ENTITY_ID,
+      type:          'table',
+      name:          'Table',
+      tags:          ['table', 'fixture'],
+      owner:         null,
+      privateToSeat: null,
+      parentId:      null,
+      children:      [],
+      components: {
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+        mesh:      { meshRef: 'prim:table-rect', textureRefs: { default: 'base:table/default' }, color: '#ffffff', applyTint: false, width: 12, height: 0.3, depth: 8 },
+        table:     { seats: provided },
+      },
+    }], ctx);
+    const t = loaded[0].getComponent(TableComponent)!;
+    expect(t.state.seats).toEqual(provided);
+  });
+
+  test('a consumer can read seat poses from TableComponent state via seatPoseFromState', () => {
+    const e = scene.spawn('table', ctx, { id: TABLE_ENTITY_ID });
+    const t = e.getComponent(TableComponent)!;
+    const poses = t.state.seats!.map(seatPoseFromState);
+    expect(poses).toHaveLength(8);
+    for (const p of poses) {
+      expect(p.position.y).toBe(0);
+      const len = Math.hypot(p.facing.x, p.facing.y, p.facing.z);
+      expect(len).toBeCloseTo(1, 10);
+    }
   });
 });
 
