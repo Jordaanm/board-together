@@ -171,6 +171,21 @@ describe('PdfOverlaySheet — page sync from controller', () => {
   });
 });
 
+describe('PdfOverlaySheet — text layer', () => {
+  test('stamps the text-layer stylesheet into the document', () => {
+    setup();
+    const styles = document.querySelectorAll('style');
+    let found = false;
+    for (const s of styles) {
+      if ((s.textContent ?? '').includes('.pdf-overlay-text-layer')) {
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+});
+
 describe('PdfOverlaySheet — singleton swap', () => {
   test('opening a second slug replaces sheet content', () => {
     const otherEntry: AssetEntry = { ...pdfEntry, slug: 'custom:other', pageCount: 2 };

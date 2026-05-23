@@ -11,6 +11,7 @@ import { useAnchorTarget } from './AnchorLayout';
 import { createPortal } from 'react-dom';
 import { assetService } from '../assets/AssetService';
 import { renderPageCanvas } from '../assets/pdf/PdfPageRenderer';
+import { loadPdfjs } from '../assets/pdf/pdfjsLoader';
 import {
   type PdfOverlayController,
   type PdfOverlayState,
@@ -123,6 +124,41 @@ const CANVAS_WRAPPER: React.CSSProperties = {
   width:      '100%',
 };
 
+// pdfjs text-layer container. Spans inside are positioned by the
+// TextLayer class via inline styles; this wrapper just needs to sit
+// flush over the rendered canvas with the same pixel dimensions, and
+// keep its glyphs invisible so the user only ever sees the canvas.
+// `color: transparent` keeps the glyphs paintable into the
+// selection range while invisible at rest.
+const TEXT_LAYER_BASE: React.CSSProperties = {
+  position:       'absolute',
+  inset:          0,
+  overflow:       'hidden',
+  lineHeight:     1,
+  pointerEvents:  'auto',
+  // The vendored pdfjs text-layer CSS reads these custom properties on
+  // the container; ship them inline so we don't have to import the
+  // upstream stylesheet.
+  ['--scale-factor' as never]: 1,
+};
+
+// Stamped into a <style> tag once per mount. The pdfjs TextLayer
+// positions spans absolutely; the selection-rendering rules below
+// match upstream's `web/text_layer_builder.css` enough to make
+// selection visible and text copyable.
+const TEXT_LAYER_CSS = `
+.pdf-overlay-text-layer { color: transparent; }
+.pdf-overlay-text-layer ::selection { background: rgba(0, 100, 255, 0.35); }
+.pdf-overlay-text-layer ::-moz-selection { background: rgba(0, 100, 255, 0.35); }
+.pdf-overlay-text-layer span,
+.pdf-overlay-text-layer br {
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+`;
+
 const STATUS: React.CSSProperties = {
   padding:   '40px 14px',
   textAlign: 'center',
@@ -191,12 +227,13 @@ function SheetBody({
   }, [controller]);
 
   // (Re)render the page whenever assetSlug or page changes. Each
-  // render replaces the wrapper's children — the previous canvas is
-  // discarded as the new one is appended.
+  // render replaces the wrapper's children — the previous canvas
+  // and text-layer are discarded as the new ones are appended.
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
-    let cancelled = false;
+    let cancelled    = false;
+    let activeLayer: { cancel?: () => void } | null = null;
     setStatus('loading');
     (async () => {
       const doc = await assetService.resolvePdfDocument(state.assetSlug);
@@ -217,9 +254,59 @@ function SheetBody({
       canvas.style.display  = 'block';
       while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
       wrapper.appendChild(canvas);
+
+      // Text layer — render after the canvas is in the DOM so the
+      // container's CSS pixel size is known. The pdfjs TextLayer
+      // positions spans by the page viewport; we use the same scale
+      // as the canvas so they line up. Stretching the CSS dimensions
+      // to match the canvas's intrinsic resolution keeps the glyph
+      // boxes pixel-aligned even after the wrapper scales the canvas
+      // to 100% width.
+      const textLayerDiv = document.createElement('div');
+      textLayerDiv.className = 'pdf-overlay-text-layer';
+      Object.assign(textLayerDiv.style, TEXT_LAYER_BASE);
+      // The pdfjs TextLayer positions spans in viewport pixels (i.e.
+      // `canvas.width × canvas.height`). The rendered canvas itself
+      // is scaled to 100% width of the wrapper, so we mirror that
+      // scale on the text-layer div — keeps glyph boxes pixel-aligned
+      // with the visible canvas.
+      textLayerDiv.style.width           = `${canvas.width}px`;
+      textLayerDiv.style.height          = `${canvas.height}px`;
+      textLayerDiv.style.transformOrigin = '0 0';
+      const cssScale = canvas.clientWidth > 0 ? canvas.clientWidth / canvas.width : 1;
+      textLayerDiv.style.transform = `scale(${cssScale})`;
+      wrapper.appendChild(textLayerDiv);
+
+      try {
+        const page          = await doc.getPage(state.page);
+        if (cancelled || !wrapper.isConnected) return;
+        const viewport      = page.getViewport({ scale: OVERLAY_SCALE });
+        const pdfjs         = await loadPdfjs();
+        if (cancelled || !wrapper.isConnected) return;
+        const textContent   = await page.getTextContent();
+        if (cancelled || !wrapper.isConnected) return;
+        const TextLayerCtor = (pdfjs as unknown as { TextLayer: new (opts: object) => { render: () => Promise<unknown>; cancel?: () => void } }).TextLayer;
+        if (TextLayerCtor) {
+          const layer = new TextLayerCtor({
+            textContentSource: textContent,
+            container:         textLayerDiv,
+            viewport,
+          });
+          activeLayer = layer;
+          await layer.render();
+        }
+      } catch {
+        // Text layer is non-essential — failing it shouldn't break the
+        // canvas render. Leave the empty text-layer div in place so
+        // styles stay stable; selection just won't pick up any glyphs.
+      }
+
       setStatus('ready');
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      activeLayer?.cancel?.();
+    };
   }, [state.assetSlug, state.page]);
 
   const atFirst = state.page <= 1;
@@ -279,6 +366,7 @@ function SheetBody({
       tabIndex={-1}
       onKeyDown={onKeyDown}
     >
+      <style>{TEXT_LAYER_CSS}</style>
       <header style={HEADER}>
         <span style={TITLE}>{state.assetSlug}</span>
         <div style={NAV_ROW}>
