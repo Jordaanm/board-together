@@ -52,6 +52,9 @@ export interface SeatOverlaySyncState {
   selected: boolean;
   // Resolved display name per seat (length 8). Empty string → vacant, no plane.
   names:    readonly string[];
+  // Seat currently being moved with the 3D gizmo; its disk + chevron and
+  // floating name plane are hidden until the edit ends.
+  hiddenSeatIndex?: number | null;
 }
 
 export class SeatOverlay {
@@ -77,6 +80,7 @@ export class SeatOverlay {
       return;
     }
     const n = Math.min(seats.length, SEAT_COUNT);
+    const hidden = state.hiddenSeatIndex ?? null;
     for (let i = 0; i < n; i++) {
       const s    = seats[i];
       const pose = seatPoseFromState(s);
@@ -85,9 +89,9 @@ export class SeatOverlay {
       // Chevron mesh points toward -Z at yaw=0; rotating the group by yaw
       // makes it point along `facing`. Disk is radially symmetric.
       marker.group.rotation.set(0, s.yaw, 0);
-      marker.group.visible = state.selected;
+      marker.group.visible = state.selected && i !== hidden;
 
-      const rawName = state.names[i] ?? '';
+      const rawName = i === hidden ? '' : (state.names[i] ?? '');
       this.applyNamePlane(i, rawName, pose, s.yaw);
     }
     // Tear down marker / name entries beyond the seats array length.
@@ -95,15 +99,6 @@ export class SeatOverlay {
       this.markerEntries[i].group.visible = false;
       this.disposeNameEntry(i);
     }
-  }
-
-  // Hide an individual seat marker + name plane (used by Issue 5 — actively
-  // gizmo-edited seat). Exposed for future wiring; this slice does not call it.
-  setSeatHidden(i: number, hidden: boolean): void {
-    const marker = this.markerEntries[i];
-    if (marker) marker.group.visible = !hidden && marker.group.visible;
-    const name = this.nameEntries[i];
-    if (name)   name.group.visible   = !hidden;
   }
 
   dispose(): void {

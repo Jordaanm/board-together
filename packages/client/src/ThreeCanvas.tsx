@@ -28,6 +28,7 @@ import { CursorTracker } from './cursor/CursorTracker';
 import { CursorOverlay } from './cursor/CursorOverlay';
 import { PingOverlay } from './cursor/PingOverlay';
 import { SeatOverlay } from './seats/SeatOverlay';
+import { SeatGizmoBinding } from './seats/SeatGizmoBinding';
 import { TableComponent } from './entity/components/TableComponent';
 import { TABLE_ENTITY_ID } from './entity/tableEntity';
 import { TABLE_SURFACE_Y } from './scene/Table';
@@ -50,6 +51,10 @@ interface Props {
   getSelfPeerIdRef:    MutableRefObject<() => string | null>;
   getPeerSeatRef:      MutableRefObject<(peerId: string) => SeatIndex | null>;
   getRoomSnapshotRef:  MutableRefObject<() => RoomStateSnapshot | null>;
+  // Index of the seat currently being edited via the move gizmo, or null.
+  // Drives SeatGizmoBinding's attach/detach and the SeatOverlay's "hide
+  // the actively-edited seat" treatment.
+  getEditingSeatIndexRef: MutableRefObject<() => number | null>;
   onMsgRef:            MutableRefObject<(peerId: string, msg: ChannelMessage) => void>;
   onPeerLeftRef:       MutableRefObject<(peerId: string) => void>;
   onPeerJoinedRef:     MutableRefObject<(peerId: string) => void>;
@@ -77,7 +82,7 @@ export interface HandView {
 
 export function ThreeCanvas({
   isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
-  getRoomSnapshotRef,
+  getRoomSnapshotRef, getEditingSeatIndexRef,
   onMsgRef, onPeerLeftRef, onPeerJoinedRef,
   onContextMenuRef,
   isMenuOpenRef,
@@ -188,6 +193,15 @@ export function ThreeCanvas({
 
     pingOverlay = new PingOverlay(scene, world);
     const unsubscribePing = world.onToolBroadcast((msg) => pingOverlay?.ingest(msg));
+
+    // SeatGizmoBinding owns its own MoveGizmo and pointer listeners (capture
+    // phase so it wins arbitration against the GrabTool dispatcher). It's
+    // attached only while editingSeatIndex is non-null.
+    const seatGizmo = new SeatGizmoBinding(
+      scene, camera, renderer.domElement,
+      () => world.get(TABLE_ENTITY_ID)?.entity.getComponent(TableComponent)?.state.seats ?? null,
+      (next) => world.updateComponentProp(TABLE_ENTITY_ID, 'table', 'seats', next),
+    );
 
     // Issue #11 — every peer (host and guests) plays inbound sound
     // broadcasts locally. Resolves through the same AssetService cache the
@@ -434,10 +448,16 @@ export function ThreeCanvas({
       const tableHandle = world.get(TABLE_ENTITY_ID);
       const tableSeats  = tableHandle?.entity.getComponent(TableComponent)?.state.seats;
       const snap        = getRoomSnapshotRef.current();
+      const requestedEditingSeat = highlightId === TABLE_ENTITY_ID
+        ? getEditingSeatIndexRef.current()
+        : null;
+      seatGizmo.setEditingSeat(requestedEditingSeat);
+      seatGizmo.update();
       seatOverlay.sync({
-        seats:    tableSeats,
-        selected: highlightId === TABLE_ENTITY_ID,
-        names:    resolveSeatNames(snap),
+        seats:           tableSeats,
+        selected:        highlightId === TABLE_ENTITY_ID,
+        names:           resolveSeatNames(snap),
+        hiddenSeatIndex: seatGizmo.getEditingSeat(),
       });
 
       // Drive zone debug-mesh visibility from selection + global toggle.
@@ -482,6 +502,7 @@ export function ThreeCanvas({
       unsubscribeSnd();
       pingOverlay?.dispose();
       pingOverlay = null;
+      seatGizmo.dispose();
       seatOverlay.dispose();
       cursorOverlay.dispose();
       cursorTracker.clear();
@@ -508,7 +529,7 @@ export function ThreeCanvas({
     };
   }, [
     isHost, sendRef, sendToRef, getTargetsRef, getSelfSeatRef, getSelfPeerIdRef, getPeerSeatRef,
-    getRoomSnapshotRef,
+    getRoomSnapshotRef, getEditingSeatIndexRef,
     onMsgRef, onPeerLeftRef, onPeerJoinedRef,
     onContextMenuRef,
     isMenuOpenRef,

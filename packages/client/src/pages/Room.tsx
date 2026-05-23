@@ -29,6 +29,7 @@ import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
+import { TABLE_ENTITY_ID } from '../entity/tableEntity';
 import { DiceComponent } from '../entity/components/DiceComponent';
 import { DeckComponent } from '../entity/components/DeckComponent';
 import { RoomStateManager } from '../seats/RoomStateManager';
@@ -96,6 +97,14 @@ export function Room({ roomId, isHost }: Props) {
   const [bundleCache, setBundleCache]       = useState<BundleCache | null>(null);
   const [handle, setHandle]                 = useState<SceneHandle | null>(null);
   const [editingSeatIndex, setEditingSeatIndex] = useState<number | null>(null);
+
+  // Selecting anything other than the Table tears down any in-flight seat
+  // gizmo edit so the gizmo can't outlive its panel row.
+  useEffect(() => {
+    if (selectedId !== TABLE_ENTITY_ID && editingSeatIndex !== null) {
+      setEditingSeatIndex(null);
+    }
+  }, [selectedId, editingSeatIndex]);
   const [inspectDialog, setInspectDialog] = useState<{
     deckId:   string;
     deckName: string;
@@ -111,6 +120,7 @@ export function Room({ roomId, isHost }: Props) {
   const getSelfPeerIdRef   = useRef<() => string | null>(() => null);
   const getPeerSeatRef     = useRef<(peerId: string) => SeatIndex | null>(() => null);
   const getRoomSnapshotRef = useRef<() => RoomStateSnapshot | null>(() => null);
+  const getEditingSeatIndexRef = useRef<() => number | null>(() => null);
   const onMsgRef           = useRef<(peerId: string, msg: ChannelMessage) => void>(noop);
   const onPeerLeftRef      = useRef<(peerId: string) => void>(noop);
   const onPeerJoinedRef    = useRef<(peerId: string) => void>(noop);
@@ -146,6 +156,7 @@ export function Room({ roomId, isHost }: Props) {
   getActiveToolRef.current   = () => activeToolId;
   setHandViewRef.current     = (view) => setHandView(view);
   getRoomSnapshotRef.current = () => roomSnapshot;
+  getEditingSeatIndexRef.current = () => editingSeatIndex;
 
   const objects = useSceneObjects(handle?.controller ?? null, isHost);
 
@@ -695,6 +706,7 @@ export function Room({ roomId, isHost }: Props) {
         getSelfPeerIdRef={getSelfPeerIdRef}
         getPeerSeatRef={getPeerSeatRef}
         getRoomSnapshotRef={getRoomSnapshotRef}
+        getEditingSeatIndexRef={getEditingSeatIndexRef}
         onMsgRef={onMsgRef}
         onPeerLeftRef={onPeerLeftRef}
         onPeerJoinedRef={onPeerJoinedRef}
