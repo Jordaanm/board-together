@@ -19,6 +19,7 @@
 import {
   EntityComponent,
   type SpawnContext,
+  type ActionContext,
 } from '../EntityComponent';
 import { type PropertyDef } from '../propertySchema';
 import { type SeatIndex } from '../../seats/SeatLayout';
@@ -104,6 +105,17 @@ export class PdfComponent extends EntityComponent<PdfState> {
 
   previousPage(ctx: PdfMutatorContext): void {
     this.setPage(this.state.currentPage - 1, ctx);
+  }
+
+  // Pure-action surface. Lets the floating buttons (Issue #8) and the
+  // hotkey dispatcher route through the standard `dispatchAction` path
+  // — guests fire `invoke-action`, the host gates on seat + applies via
+  // `setPage`. `recipientSeat` from ActionContext flows straight into
+  // the seat-gated mutator.
+  onAction(name: string, ctx: ActionContext): void {
+    const mut: PdfMutatorContext = { recipientSeat: ctx.recipientSeat };
+    if (name === 'pdf-next') { this.nextPage(mut);     return; }
+    if (name === 'pdf-prev') { this.previousPage(mut); return; }
   }
 
   // ── Internals ──────────────────────────────────────────────────────────

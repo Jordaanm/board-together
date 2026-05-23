@@ -28,6 +28,8 @@ import { CursorTracker } from './cursor/CursorTracker';
 import { CursorOverlay } from './cursor/CursorOverlay';
 import { PingOverlay } from './cursor/PingOverlay';
 import { HoverTooltipOverlay } from './cursor/HoverTooltipOverlay';
+import { PdfFloatingButtonsOverlay } from './components/PdfFloatingButtonsOverlay';
+import { dispatchAction } from './input/ContextMenuController';
 import { SeatOverlay } from './seats/SeatOverlay';
 import { SeatGizmoBinding } from './seats/SeatGizmoBinding';
 import { TableComponent } from './entity/components/TableComponent';
@@ -136,6 +138,28 @@ export function ThreeCanvas({
     const seatOverlay   = new SeatOverlay(scene);
     let   pingOverlay: PingOverlay | null = null;
     const hoverTooltip  = new HoverTooltipOverlay(container);
+    // Bridges the floating-button clicks to the standard dispatchAction
+    // path so guest clicks flow through `invoke-action` and host clicks
+    // apply directly with seat context — same routing the context menu
+    // uses, so seat gating + replication land for free.
+    const dispatchPdfAction = (entityId: string, actionId: 'pdf-prev' | 'pdf-next') => {
+      const handleEntity = worldRef?.get(entityId)?.entity;
+      dispatchAction(entityId, 'pdf', actionId, {
+        isHost,
+        entity:   handleEntity,
+        send:     (msg) => sendRef.current(msg),
+        selfSeat: getSelfSeatRef.current(),
+      });
+    };
+    // Open-in-overlay is per-viewer state, wired in Issue #9. For
+    // Issue #8 it stays a stub so the button is clickable but does
+    // nothing.
+    let onOpenInOverlay: (entityId: string) => void = () => {};
+    const pdfButtons    = new PdfFloatingButtonsOverlay(container, {
+      onPrev: (id) => dispatchPdfAction(id, 'pdf-prev'),
+      onNext: (id) => dispatchPdfAction(id, 'pdf-next'),
+      onOpen: (id) => onOpenInOverlay(id),
+    });
 
     // Local pointer state — raycast onto the table plane and broadcast at
     // ~30Hz so peers see this user's cursor in real time.
@@ -440,6 +464,12 @@ export function ThreeCanvas({
       const hoveredId = inputDispatcher.getHoveredId();
       const hovered   = hoveredId ? world.get(hoveredId)?.entity ?? null : null;
       hoverTooltip.update(hovered, pointerClient);
+      pdfButtons.update({
+        camera,
+        canvas:         renderer.domElement,
+        hoveredEntity:  hovered,
+        selectedEntity: highlightId ? world.get(highlightId)?.entity ?? null : null,
+      });
 
       // ── Cursor: throttled send + render sync ───────────────────────────
       const cursorNow = performance.now();
@@ -518,6 +548,7 @@ export function ThreeCanvas({
       renderer.domElement.removeEventListener('pointerleave', onCursorLeave);
       renderer.domElement.removeEventListener('pointerdown', focusOnDown);
       hoverTooltip.dispose();
+      pdfButtons.dispose();
       hotkeyDispatcher.dispose();
       onSceneReady?.(null);
       unsubscribePing();

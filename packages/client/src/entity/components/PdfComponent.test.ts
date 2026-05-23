@@ -175,6 +175,41 @@ describe('PdfComponent — bag interaction', () => {
   });
 });
 
+describe('PdfComponent — onAction', () => {
+  function actionCtx(seat: number | null) {
+    return {
+      recipientSeat: seat as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | null,
+      isHost:        true,
+      entity:        undefined as never,  // unused by PdfComponent.onAction
+      preferences:   {} as never,
+    };
+  }
+
+  test('pdf-next advances when seated', () => {
+    const e = scene.spawn('pdf', ctx);
+    const pdf = e.getComponent(PdfComponent)!;
+    pdf.setState({ assetSlug: 'custom:my-doc' });
+    pdf.onAction('pdf-next', { ...actionCtx(0), entity: e });
+    expect(pdf.state.currentPage).toBe(2);
+  });
+
+  test('pdf-prev rewinds when seated', () => {
+    const e = scene.spawn('pdf', ctx);
+    const pdf = e.getComponent(PdfComponent)!;
+    pdf.setState({ assetSlug: 'custom:my-doc', currentPage: 3 });
+    pdf.onAction('pdf-prev', { ...actionCtx(0), entity: e });
+    expect(pdf.state.currentPage).toBe(2);
+  });
+
+  test('pdf-next is a no-op for a spectator', () => {
+    const e = scene.spawn('pdf', ctx);
+    const pdf = e.getComponent(PdfComponent)!;
+    pdf.setState({ assetSlug: 'custom:my-doc' });
+    pdf.onAction('pdf-next', { ...actionCtx(null), entity: e });
+    expect(pdf.state.currentPage).toBe(1);
+  });
+});
+
 describe('PdfComponent — save/load round-trip', () => {
   test('JSON round-trips assetSlug and currentPage', () => {
     const fresh = new PdfComponent();
