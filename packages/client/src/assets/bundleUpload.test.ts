@@ -40,6 +40,11 @@ describe('inferAssetTypeFromFile', () => {
     expect(inferAssetTypeFromFile(makeFile('foo.OGG', ''))).toBe('sound');
   });
 
+  test('recognises pdf via MIME or extension', () => {
+    expect(inferAssetTypeFromFile(makeFile('x.bin', 'application/pdf'))).toBe('pdf');
+    expect(inferAssetTypeFromFile(makeFile('doc.PDF', ''))).toBe('pdf');
+  });
+
   test('unknown extension + MIME → null', () => {
     expect(inferAssetTypeFromFile(makeFile('foo.xyz', ''))).toBeNull();
   });

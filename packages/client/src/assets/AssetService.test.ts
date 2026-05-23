@@ -1061,7 +1061,7 @@ describe('AssetService PDF page resolution', () => {
   // Tracks how many times getDocument is called so dedup can be asserted.
   function makeFakePdfjs(pageCount: number): {
     pdfjs: Pdfjs;
-    getDocumentCalls: number;
+    state: { getDocumentCalls: number };
   } {
     const state = { getDocumentCalls: 0 };
     const pdfjs = {
@@ -1071,7 +1071,7 @@ describe('AssetService PDF page resolution', () => {
       },
       GlobalWorkerOptions: { workerSrc: '' },
     } as unknown as Pdfjs;
-    return { pdfjs, getDocumentCalls: 0, ...state };
+    return { pdfjs, state };
   }
 
   // Stand-in for a CanvasTexture. The cache only ever calls `.dispose()`.
@@ -1088,7 +1088,7 @@ describe('AssetService PDF page resolution', () => {
     const store = new BundleStore();
     store.put(PDF_HASH, makeFakeBlob());
     const renderedTex = fakeCanvasTexture();
-    const renderer = vi.fn(() => Promise.resolve(renderedTex));
+    const renderer = vi.fn((_doc: unknown, _page: number, _scale: number) => Promise.resolve(renderedTex));
     const svc = new AssetService({
       manifests:        [Manifest.from([pdfEntry])],
       bundleStore:      store,

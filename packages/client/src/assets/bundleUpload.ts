@@ -32,11 +32,13 @@ export function inferAssetTypeFromFile(file: File): AssetType | null {
   if (mime.startsWith('image/'))      return 'image';
   if (mime.startsWith('audio/'))      return 'sound';
   if (mime === 'model/gltf-binary' || mime === 'model/gltf+json') return 'model';
+  if (mime === 'application/pdf')     return 'pdf';
 
   const lower = file.name.toLowerCase();
   if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(lower))      return 'image';
   if (/\.(mp3|wav|ogg|m4a|aac|flac)$/.test(lower))        return 'sound';
   if (/\.(glb|gltf)$/.test(lower))                        return 'model';
+  if (/\.pdf$/.test(lower))                                return 'pdf';
   return null;
 }
 

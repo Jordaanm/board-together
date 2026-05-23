@@ -31,6 +31,7 @@ import {
   inferAssetTypeFromFile,
   uniqueCustomSlug,
 } from '../assets/bundleUpload';
+import { extractAspect } from '../assets/pdf/pdfAspectExtractor';
 import {
   formatBytes,
   useBundleSize,
@@ -423,7 +424,9 @@ function ListHeader() {
 }
 
 function typeLabel(t: AssetType): string {
-  return t === 'spritesheet' ? 'sprite' : t;
+  if (t === 'spritesheet') return 'sprite';
+  if (t === 'pdf')         return 'pdf';
+  return t;
 }
 
 function RowPreview({ entry, bundleStore }: { entry: AssetEntry; bundleStore?: BundleStore }) {
@@ -438,7 +441,28 @@ function RowPreview({ entry, bundleStore }: { entry: AssetEntry; bundleStore?: B
   if (entry.type === 'sound' && !isSyntheticUrl(entry.url) && src) {
     return <div style={PREVIEW_BOX}><SoundPreview url={src} /></div>;
   }
+  if (entry.type === 'pdf') {
+    return <div style={PREVIEW_BOX}><PdfIcon /></div>;
+  }
   return <div style={PREVIEW_BOX} />;
+}
+
+function PdfIcon() {
+  return (
+    <svg width="22" height="26" viewBox="0 0 22 26" xmlns="http://www.w3.org/2000/svg" aria-label="PDF">
+      <path
+        d="M3 1 H14 L21 8 V25 H3 Z"
+        fill="var(--surface-2)"
+        stroke="var(--line-strong)"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      <path d="M14 1 V8 H21" fill="none" stroke="var(--line-strong)" strokeWidth="1" />
+      <text x="11" y="20" textAnchor="middle" fontSize="6" fontFamily="var(--font-sans)" fontWeight="700" fill="var(--ink-2)">
+        PDF
+      </text>
+    </svg>
+  );
 }
 
 function SoundPreview({ url }: { url: string }) {
@@ -895,8 +919,15 @@ function AddRow({
       if (!Number.isInteger(colsNum) || colsNum < 1) return setError('Cols must be a positive integer.');
       if (!Number.isInteger(rowsNum) || rowsNum < 1) return setError('Rows must be a positive integer.');
     }
-    setUploadStatus(`Hashing ${pendingFile.name}…`);
+    const isPdf = type === 'pdf';
     try {
+      let aspectRatio: number | undefined;
+      if (isPdf) {
+        setUploadStatus(`Reading PDF ${pendingFile.name}…`);
+        const bytes = new Uint8Array(await pendingFile.arrayBuffer());
+        aspectRatio = await extractAspect(bytes);
+      }
+      setUploadStatus(`Hashing ${pendingFile.name}…`);
       const hash = await bundleBlob(pendingFile, bundleStore, bundleCache);
       store.editDraft((d) => d.add({
         slug,
@@ -908,6 +939,7 @@ function AddRow({
         hash,
         size:    pendingFile.size,
         ...(isSheet ? { cols: colsNum, rows: rowsNum } : {}),
+        ...(isPdf && aspectRatio !== undefined ? { aspectRatio } : {}),
       }));
       reset();
     } catch (e) {
@@ -1021,7 +1053,7 @@ function AddRow({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,audio/*,.glb,.gltf"
+                accept="image/*,audio/*,.glb,.gltf,application/pdf,.pdf"
                 style={{ display: 'none' }}
                 onChange={onFileInputChange}
               />
@@ -1046,7 +1078,9 @@ function AddRow({
           ? ['sound']
           : pendingFile && inferAssetTypeFromFile(pendingFile) === 'model'
             ? ['model']
-            : ['image'])
+            : pendingFile && inferAssetTypeFromFile(pendingFile) === 'pdf'
+              ? ['pdf']
+              : ['image'])
     : ['image', 'model', 'sound', 'spritesheet'];
 
   return (
