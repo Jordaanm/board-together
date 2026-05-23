@@ -328,6 +328,11 @@ export class MeshComponent extends EntityComponent<MeshState> {
       disposeGroup(this.group);
       while (this.group.children.length) this.group.remove(this.group.children[0]);
       const clone = obj.clone(true);
+      // Object3D.clone(true) shares materials between clones — without this
+      // step, applyMaterialAttributes' `material.map = tex` would mutate the
+      // AssetService cache and every other entity using the same GLB would
+      // pick up the texture.
+      cloneMaterials(clone);
       if (status === 'loaded') {
         const physState = (this.entity.components.get('physics') as
           { state?: { shape?: string } } | undefined)?.state;
@@ -819,6 +824,17 @@ function pipTextureFor(count: number): THREE.Texture | null {
   tex.colorSpace = THREE.SRGBColorSpace;
   pipTextureCache.set(count, tex);
   return tex;
+}
+
+function cloneMaterials(obj: THREE.Object3D): void {
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (Array.isArray(child.material)) {
+      child.material = child.material.map((m) => m.clone());
+    } else if (child.material) {
+      child.material = child.material.clone();
+    }
+  });
 }
 
 function disposeGroup(group: THREE.Object3D | undefined): void {
