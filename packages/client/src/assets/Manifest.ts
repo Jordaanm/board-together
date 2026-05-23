@@ -37,6 +37,10 @@ export interface AssetEntry {
   // upload so spawned PDF entities can size their depth without parsing
   // the PDF on every spawn.
   aspectRatio?: number;
+  // pdf-only: total page count. Captured at upload so the entity can
+  // clamp `setPage(n)` and surface a `currentPage / pageCount` indicator
+  // without parsing the PDF.
+  pageCount?: number;
 }
 
 export class ManifestError extends Error {}
@@ -130,9 +134,15 @@ function validateEntry(entry: AssetEntry): void {
         throw new ManifestError(`entry "${entry.slug}": aspectRatio must be a positive finite number`);
       }
     }
+    if (entry.pageCount !== undefined && !isPositiveInt(entry.pageCount)) {
+      throw new ManifestError(`entry "${entry.slug}": pageCount must be a positive integer`);
+    }
   } else {
     if (entry.aspectRatio !== undefined) {
       throw new ManifestError(`entry "${entry.slug}": aspectRatio is only valid on pdf entries`);
+    }
+    if (entry.pageCount !== undefined) {
+      throw new ManifestError(`entry "${entry.slug}": pageCount is only valid on pdf entries`);
     }
   }
   if (entry.bundled !== undefined && typeof entry.bundled !== 'boolean') {

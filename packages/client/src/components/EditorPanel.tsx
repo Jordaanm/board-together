@@ -732,7 +732,7 @@ function SchemaPropertyRow({
   manifestStore: ManifestStore | null;
   onChange:      (v: unknown) => void;
 }) {
-  const isAsset = def.type === 'asset:image' || def.type === 'asset:model' || def.type === 'asset:sound';
+  const isAsset = def.type === 'asset:image' || def.type === 'asset:model' || def.type === 'asset:sound' || def.type === 'asset:pdf';
   const assetType: AssetType | null = isAsset
     ? (def.type.slice('asset:'.length) as AssetType)
     : null;

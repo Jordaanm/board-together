@@ -29,7 +29,7 @@ export const SAVE_VERSION            = 2;
 // v2 is the always-zip envelope. Both decode to the same SaveEnvelope shape.
 export const SUPPORTED_SAVE_VERSIONS = [1, 2] as const;
 
-const ASSET_TYPES: ReadonlySet<AssetType> = new Set(['image', 'model', 'sound', 'spritesheet']);
+const ASSET_TYPES: ReadonlySet<AssetType> = new Set(['image', 'model', 'sound', 'spritesheet', 'pdf']);
 
 export interface SavedScript {
   source:      string;
@@ -214,6 +214,16 @@ function decodeManifest(raw: unknown): AssetEntry[] {
         throw new SaveFileError(`manifest[${i}].rows must be a positive integer.`);
       }
     }
+    if (e.type === 'pdf') {
+      if (e.aspectRatio !== undefined &&
+          (typeof e.aspectRatio !== 'number' || !Number.isFinite(e.aspectRatio) || e.aspectRatio <= 0)) {
+        throw new SaveFileError(`manifest[${i}].aspectRatio must be a positive finite number.`);
+      }
+      if (e.pageCount !== undefined &&
+          (typeof e.pageCount !== 'number' || !Number.isInteger(e.pageCount) || e.pageCount < 1)) {
+        throw new SaveFileError(`manifest[${i}].pageCount must be a positive integer.`);
+      }
+    }
     if (e.bundled !== undefined && typeof e.bundled !== 'boolean') {
       throw new SaveFileError(`manifest[${i}].bundled must be a boolean.`);
     }
@@ -247,6 +257,8 @@ function decodeManifest(raw: unknown): AssetEntry[] {
       description: e.description as string | undefined,
       tags:        e.tags ? [...(e.tags as string[])] : undefined,
       ...(e.type === 'spritesheet' ? { cols: e.cols as number, rows: e.rows as number } : {}),
+      ...(e.type === 'pdf' && e.aspectRatio !== undefined ? { aspectRatio: e.aspectRatio as number } : {}),
+      ...(e.type === 'pdf' && e.pageCount   !== undefined ? { pageCount:   e.pageCount   as number } : {}),
       ...(e.bundled === true ? { bundled: true, hash: e.hash as string, size: e.size as number } : {}),
     };
   });

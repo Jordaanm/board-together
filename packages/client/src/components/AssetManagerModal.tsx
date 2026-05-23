@@ -31,7 +31,7 @@ import {
   inferAssetTypeFromFile,
   uniqueCustomSlug,
 } from '../assets/bundleUpload';
-import { extractAspect } from '../assets/pdf/pdfAspectExtractor';
+import { extractPdfMetadata } from '../assets/pdf/pdfAspectExtractor';
 import {
   formatBytes,
   useBundleSize,
@@ -922,10 +922,13 @@ function AddRow({
     const isPdf = type === 'pdf';
     try {
       let aspectRatio: number | undefined;
+      let pageCount:   number | undefined;
       if (isPdf) {
         setUploadStatus(`Reading PDF ${pendingFile.name}…`);
         const bytes = new Uint8Array(await pendingFile.arrayBuffer());
-        aspectRatio = await extractAspect(bytes);
+        const meta  = await extractPdfMetadata(bytes);
+        aspectRatio = meta.aspectRatio;
+        pageCount   = meta.pageCount;
       }
       setUploadStatus(`Hashing ${pendingFile.name}…`);
       const hash = await bundleBlob(pendingFile, bundleStore, bundleCache);
@@ -940,6 +943,7 @@ function AddRow({
         size:    pendingFile.size,
         ...(isSheet ? { cols: colsNum, rows: rowsNum } : {}),
         ...(isPdf && aspectRatio !== undefined ? { aspectRatio } : {}),
+        ...(isPdf && pageCount   !== undefined ? { pageCount }   : {}),
       }));
       reset();
     } catch (e) {

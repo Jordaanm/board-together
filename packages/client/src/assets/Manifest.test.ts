@@ -302,6 +302,20 @@ describe('Manifest pdf entries', () => {
     expect(() => Manifest.empty().add({ ...pdf, slug: 'base:my-doc' })).toThrow(/custom/);
     expect(() => Manifest.empty().add({ ...pdf, slug: 'prim:my-doc' })).toThrow(/custom/);
   });
+
+  test('accepts pdf with pageCount; rejects zero / negative / non-integer', () => {
+    const ok = Manifest.empty().add({ ...pdf, pageCount: 42 });
+    expect(ok.get('custom:my-doc')?.pageCount).toBe(42);
+    expect(() => Manifest.empty().add({ ...pdf, pageCount: 0     })).toThrow(/pageCount/);
+    expect(() => Manifest.empty().add({ ...pdf, pageCount: -1    })).toThrow(/pageCount/);
+    expect(() => Manifest.empty().add({ ...pdf, pageCount: 1.5   })).toThrow(/pageCount/);
+  });
+
+  test('rejects pageCount on non-pdf entries', () => {
+    expect(() =>
+      Manifest.empty().add({ ...sampleImage, pageCount: 5 } as AssetEntry)
+    ).toThrow(/pageCount/);
+  });
 });
 
 describe('Manifest spritesheet entries', () => {

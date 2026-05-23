@@ -22,6 +22,7 @@ import { TableComponent } from './components/TableComponent';
 import { SkydomeComponent } from './components/SkydomeComponent';
 import { LightingComponent } from './components/LightingComponent';
 import { SurfaceComponent } from './components/SurfaceComponent';
+import { PdfComponent } from './components/PdfComponent';
 import { D6_FACE_MAP } from '../dice/d6';
 import { D20_FACE_MAP } from '../dice/d20';
 
@@ -43,6 +44,7 @@ export function registerCorePrimitives(): void {
   if (!componentRegistry.has('skydome'))   componentRegistry.register(SkydomeComponent);
   if (!componentRegistry.has('lighting'))  componentRegistry.register(LightingComponent);
   if (!componentRegistry.has('surface'))       componentRegistry.register(SurfaceComponent);
+  if (!componentRegistry.has('pdf'))           componentRegistry.register(PdfComponent);
 
   if (!getSpawnable('table')) registerSpawnable({
     type:        'table',
@@ -200,6 +202,20 @@ export function registerCorePrimitives(): void {
           snapY:        false,
           radius:       0.4,
       }] } },
+    ],
+  });
+
+  if (!getSpawnable('pdf')) registerSpawnable({
+    type:        'pdf',
+    label:       'PDF',
+    category:    'Boards',
+    defaultTags: ['pdf'],
+    components: [
+      { typeId: 'transform', state: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
+      { typeId: 'mesh',      state: { meshRef: 'prim:page', textureRefs: { face: '', back: '', side: '' }, color: '#ffffff', applyTint: false, width: 1.0, height: 0.02, depth: 1.29 } },
+      { typeId: 'physics',   state: { mass: 0.5, friction: 0.5, restitution: 0.3, isLocked: false, yawOnly: true } },
+      { typeId: 'tween',     state: {} },
+      { typeId: 'pdf',       state: { assetSlug: '', currentPage: 1 } },
     ],
   });
 

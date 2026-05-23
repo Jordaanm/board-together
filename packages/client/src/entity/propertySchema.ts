@@ -11,7 +11,7 @@ import { componentRegistry } from './ComponentRegistry';
 export type PropertyType =
   | 'number' | 'string' | 'color' | 'boolean' | 'seat'
   | 'tags'
-  | 'asset:image' | 'asset:model' | 'asset:sound';
+  | 'asset:image' | 'asset:model' | 'asset:sound' | 'asset:pdf';
 
 export interface PropertyDef<TState extends object = object> {
   key:        string;
