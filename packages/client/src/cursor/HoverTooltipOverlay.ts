@@ -10,6 +10,8 @@
 import { type Entity } from '../entity/Entity';
 import { BagComponent } from '../entity/components/BagComponent';
 import { DeckComponent } from '../entity/components/DeckComponent';
+import { PdfComponent } from '../entity/components/PdfComponent';
+import { assetService } from '../assets/AssetService';
 
 export interface ContainerTooltipInfo {
   count: number;
@@ -24,6 +26,33 @@ export function resolveContainerTooltip(entity: Entity): ContainerTooltipInfo | 
   const deck = entity.getComponent(DeckComponent);
   if (deck) return { count: deck.state.cards.length, label: deck.state.label };
   return null;
+}
+
+// Pure resolver shared by HoverTooltipOverlay and its tests. Order is
+// PDF first (specific) → container fallback so a future container-PDF
+// crossover (e.g. a bag full of PDFs — there isn't one yet) still
+// surfaces the PDF tooltip when the cursor is over a PDF entity.
+export function resolveTooltipText(entity: Entity): string | null {
+  const pdfText = resolvePdfTooltip(entity);
+  if (pdfText !== null) return pdfText;
+  const info = resolveContainerTooltip(entity);
+  if (info) return `${info.count} ${info.label}`;
+  return null;
+}
+
+// PDF tooltip — "<asset name> — <currentPage>/<pageCount>". Returns null
+// for non-PDF entities or PDF entities with no assigned slug.
+export function resolvePdfTooltip(entity: Entity): string | null {
+  const pdf = entity.getComponent(PdfComponent);
+  if (!pdf) return null;
+  if (!pdf.state.assetSlug) return null;
+  const entry = assetService.lookupSlug(pdf.state.assetSlug);
+  if (!entry || entry.type !== 'pdf') return null;
+  const total = entry.pageCount ?? 0;
+  const page  = pdf.state.currentPage;
+  return total > 0
+    ? `${entry.name} — ${page}/${total}`
+    : `${entry.name} — page ${page}`;
 }
 
 export class HoverTooltipOverlay {
@@ -53,12 +82,11 @@ export class HoverTooltipOverlay {
       this.hide();
       return;
     }
-    const info = resolveContainerTooltip(entity);
-    if (!info) {
+    const text = resolveTooltipText(entity);
+    if (text === null) {
       this.hide();
       return;
     }
-    const text = `${info.count} ${info.label}`;
     if (this.el.textContent !== text) this.el.textContent = text;
     this.el.style.left    = `${pointer.x}px`;
     this.el.style.top     = `${pointer.y}px`;
