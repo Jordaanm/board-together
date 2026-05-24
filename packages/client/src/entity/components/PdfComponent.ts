@@ -26,6 +26,7 @@ import { type SeatIndex } from '../../seats/SeatLayout';
 import { MeshComponent } from './MeshComponent';
 import { assetService } from '../../assets/AssetService';
 import { formatPdfRef } from '../../assets/pdfRef';
+import { PDF_EMPTY_PLACEHOLDER_URL } from '../../assets/pdf/pdfStateTextures';
 
 export interface PdfState {
   assetSlug:   string;
@@ -124,7 +125,11 @@ export class PdfComponent extends EntityComponent<PdfState> {
     if (!mesh) return;
     const slug = this.state.assetSlug;
     const page = this.state.currentPage;
-    const face = slug ? formatPdfRef(slug, page) : '';
+    // Empty state — face carries a labelled "No PDF assigned" texture
+    // instead of the bare material colour. Pending/broken states
+    // keep the standard magenta placeholder (AssetService) plus a DOM
+    // badge from the floating-button overlay.
+    const face = slug ? formatPdfRef(slug, page) : PDF_EMPTY_PLACEHOLDER_URL;
     if (mesh.state.textureRefs?.face === face) return;
     mesh.setState({ textureRefs: { ...mesh.state.textureRefs, face } });
   }

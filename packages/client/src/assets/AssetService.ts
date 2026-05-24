@@ -11,6 +11,7 @@ import type { BundleTransport } from './BundleTransport';
 import { PdfDocumentCache } from './pdf/PdfDocumentCache';
 import { PdfRenderCache } from './pdf/PdfRenderCache';
 import { renderPage as defaultPdfPageRenderer } from './pdf/PdfPageRenderer';
+import { getPdfEmptyPlaceholder, PDF_EMPTY_PLACEHOLDER_URL } from './pdf/pdfStateTextures';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 // Single scale used for in-world PDF page renders. Overlay (Issue #9)
@@ -107,6 +108,14 @@ const defaultSoundLoader: SoundLoader = async (url) => {
 };
 
 let placeholderImage: THREE.Texture | null = null;
+
+// Selects the right placeholder texture for a synthetic `placeholder://`
+// URL. The default magenta is returned for unknown placeholders so the
+// existing `placeholder://image` flow stays unchanged.
+function placeholderTextureFor(url: string): THREE.Texture {
+  if (url === PDF_EMPTY_PLACEHOLDER_URL) return getPdfEmptyPlaceholder();
+  return getImagePlaceholder();
+}
 
 export function getImagePlaceholder(): THREE.Texture {
   if (placeholderImage) return placeholderImage;
@@ -521,7 +530,7 @@ export class AssetService {
 
     if (url.startsWith('placeholder://') || url.startsWith('primitive://')) {
       entry.status      = slugBroken ? 'broken' : 'loaded';
-      entry.texture     = getImagePlaceholder();
+      entry.texture     = placeholderTextureFor(url);
       entry.loadPromise = Promise.resolve(entry.texture);
       for (const l of entry.listeners) l(entry.texture, entry.status);
       return;

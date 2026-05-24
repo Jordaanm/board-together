@@ -75,7 +75,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('hidden when no entity is hovered or selected', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     overlay.update({ camera, canvas, hoveredEntity: null, selectedEntity: null });
     const buttons = parent.querySelectorAll('button');
     expect(buttons.length).toBe(3);
@@ -85,7 +85,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('hidden when hovered entity is not a PDF', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const die = scene.spawn('die', ctx);
     overlay.update({ camera, canvas, hoveredEntity: die, selectedEntity: null });
     const buttons = parent.querySelectorAll('button');
@@ -95,7 +95,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('hidden when hovered PDF has no assetSlug', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const e = scene.spawn('pdf', ctx);
     overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
     for (const b of parent.querySelectorAll('button')) {
@@ -106,7 +106,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('visible when a configured PDF is hovered; page indicator shows current / total', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const e = spawnPdfEntity();
     e.getComponent(PdfComponent)!.setState({ currentPage: 2 });
     overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
@@ -119,7 +119,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('falls back to selected PDF when nothing is hovered', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const e = spawnPdfEntity();
     overlay.update({ camera, canvas, hoveredEntity: null, selectedEntity: e });
     for (const b of parent.querySelectorAll('button')) {
@@ -130,7 +130,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('Prev disabled at page 1; Next disabled at last page', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const e = spawnPdfEntity();
     overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
     const [prev, next] = parent.querySelectorAll('button');
@@ -145,7 +145,8 @@ describe('PdfFloatingButtonsOverlay', () => {
 
   test('button clicks fan out to the supplied callbacks with the target entity id', () => {
     const onPrev = vi.fn(), onNext = vi.fn(), onOpen = vi.fn();
-    const overlay = new PdfFloatingButtonsOverlay(parent, { onPrev, onNext, onOpen });
+    const overlay = new PdfFloatingButtonsOverlay(parent, { onPrev, onNext, onOpen },
+      { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const e = spawnPdfEntity();
     e.getComponent(PdfComponent)!.setState({ currentPage: 3 });
     overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
@@ -161,7 +162,7 @@ describe('PdfFloatingButtonsOverlay', () => {
   test('hover wins over selection when both are set', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     const hovered  = spawnPdfEntity();
     hovered.getComponent(PdfComponent)!.setState({ currentPage: 2 });
     const selected = spawnPdfEntity();
@@ -171,10 +172,45 @@ describe('PdfFloatingButtonsOverlay', () => {
     expect(indicator.textContent).toBe('2 / 5');
   });
 
+  test('pending status disables every button and shows the Loading badge', () => {
+    let emit: ((s: 'pending' | 'loaded' | 'broken') => void) | null = null;
+    const overlay = new PdfFloatingButtonsOverlay(parent, {
+      onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
+    }, { subscribeStatus: (_ref, cb) => { emit = cb; cb('pending'); return () => {}; } });
+    const e = spawnPdfEntity();
+    overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
+    const [prev, next, open] = parent.querySelectorAll('button');
+    expect((prev as HTMLButtonElement).disabled).toBe(true);
+    expect((next as HTMLButtonElement).disabled).toBe(true);
+    expect((open as HTMLButtonElement).disabled).toBe(true);
+    const badge = Array.from(parent.querySelectorAll('div'))
+      .find((d) => (d.textContent ?? '') === 'Loading…');
+    expect(badge).toBeTruthy();
+    // Transition to loaded → buttons re-enable, badge hides.
+    emit!('loaded');
+    overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
+    expect((next as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('broken status hides buttons and shows the PDF-unavailable label', () => {
+    const overlay = new PdfFloatingButtonsOverlay(parent, {
+      onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
+    }, { subscribeStatus: (_ref, cb) => { cb('broken'); return () => {}; } });
+    const e = spawnPdfEntity();
+    overlay.update({ camera, canvas, hoveredEntity: e, selectedEntity: null });
+    for (const b of parent.querySelectorAll('button')) {
+      expect((b as HTMLButtonElement).style.display).toBe('none');
+    }
+    const badge = Array.from(parent.querySelectorAll('div'))
+      .find((d) => (d.textContent ?? '') === 'PDF unavailable');
+    expect(badge).toBeTruthy();
+    expect((badge as HTMLElement).style.display).toBe('block');
+  });
+
   test('hide() detaches every overlay element on dispose', () => {
     const overlay = new PdfFloatingButtonsOverlay(parent, {
       onPrev: vi.fn(), onNext: vi.fn(), onOpen: vi.fn(),
-    });
+    }, { subscribeStatus: (_ref, cb) => { cb('loaded'); return () => {}; } });
     overlay.dispose();
     expect(parent.children.length).toBe(0);
   });

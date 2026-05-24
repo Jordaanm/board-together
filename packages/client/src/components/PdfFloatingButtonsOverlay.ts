@@ -15,6 +15,8 @@ import { type Entity } from '../entity/Entity';
 import { TransformComponent } from '../entity/components/TransformComponent';
 import { MeshComponent } from '../entity/components/MeshComponent';
 import { PdfComponent } from '../entity/components/PdfComponent';
+import { assetService, type AssetStatus } from '../assets/AssetService';
+import { formatPdfRef } from '../assets/pdfRef';
 
 export interface PdfFloatingButtonsCallbacks {
   onPrev: (entityId: string) => void;
@@ -23,6 +25,11 @@ export interface PdfFloatingButtonsCallbacks {
   // per-viewer `PdfOverlayController`.
   onOpen: (entityId: string) => void;
 }
+
+// AssetService.subscribe seam for unit tests. Defaults to the live
+// singleton; tests inject a stub that synchronously fires a chosen
+// status.
+export type SubscribePdfStatus = (ref: string, cb: (s: AssetStatus) => void) => () => void;
 
 export interface PdfFloatingButtonsUpdate {
   camera:         THREE.PerspectiveCamera;
@@ -55,12 +62,28 @@ const INDICATOR_STYLE: Partial<CSSStyleDeclaration> = {
   font:           '12px sans-serif',
 };
 
+const STATUS_BADGE_STYLE: Partial<CSSStyleDeclaration> = {
+  position:       'fixed',
+  pointerEvents:  'none',
+  background:     'rgba(20, 20, 28, 0.9)',
+  color:          '#fff',
+  border:         '1px solid rgba(255, 255, 255, 0.15)',
+  borderRadius:   '4px',
+  font:           '12px sans-serif',
+  padding:        '4px 8px',
+  zIndex:         '900',
+  display:        'none',
+  transform:      'translate(-50%, -50%)',
+  userSelect:     'none',
+};
+
 export class PdfFloatingButtonsOverlay {
-  private readonly prevBtn:   HTMLButtonElement;
-  private readonly nextBtn:   HTMLButtonElement;
-  private readonly openBtn:   HTMLButtonElement;
-  private readonly indicator: HTMLDivElement;
-  private readonly elements:  HTMLElement[];
+  private readonly prevBtn:     HTMLButtonElement;
+  private readonly nextBtn:     HTMLButtonElement;
+  private readonly openBtn:     HTMLButtonElement;
+  private readonly indicator:   HTMLDivElement;
+  private readonly statusBadge: HTMLDivElement;
+  private readonly elements:    HTMLElement[];
 
   // Cache the entity id whose state we last rendered so we don't reflow
   // disabled flags / labels every frame when nothing changed.
@@ -68,10 +91,25 @@ export class PdfFloatingButtonsOverlay {
   private lastCurrentPage: number        = 0;
   private lastPageCount:   number        = 0;
 
-  private readonly cb: PdfFloatingButtonsCallbacks;
+  // AssetService subscription for the target PDF's current page-ref.
+  // Re-subscribed whenever the ref changes (entity swap, slug change,
+  // page flip) so the overlay tracks loaded / pending / broken in real
+  // time without polling per frame.
+  private currentRef:    string | null      = null;
+  private currentStatus: AssetStatus | null = null;
+  private currentUnsub:  (() => void) | null = null;
 
-  constructor(parent: HTMLElement, callbacks: PdfFloatingButtonsCallbacks) {
+  private readonly cb: PdfFloatingButtonsCallbacks;
+  private readonly subscribeStatus: SubscribePdfStatus;
+
+  constructor(
+    parent:    HTMLElement,
+    callbacks: PdfFloatingButtonsCallbacks,
+    opts:      { subscribeStatus?: SubscribePdfStatus } = {},
+  ) {
     this.cb = callbacks;
+    this.subscribeStatus = opts.subscribeStatus
+      ?? ((ref, cb) => assetService.subscribe(ref, 'image', (_tex, s) => cb(s)));
 
     this.prevBtn = document.createElement('button');
     Object.assign(this.prevBtn.style, BTN_STYLE);
@@ -94,6 +132,9 @@ export class PdfFloatingButtonsOverlay {
     this.indicator = document.createElement('div');
     Object.assign(this.indicator.style, INDICATOR_STYLE);
 
+    this.statusBadge = document.createElement('div');
+    Object.assign(this.statusBadge.style, STATUS_BADGE_STYLE);
+
     this.prevBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.lastEntityId) this.cb.onPrev(this.lastEntityId);
@@ -107,7 +148,7 @@ export class PdfFloatingButtonsOverlay {
       if (this.lastEntityId) this.cb.onOpen(this.lastEntityId);
     });
 
-    this.elements = [this.prevBtn, this.nextBtn, this.openBtn, this.indicator];
+    this.elements = [this.prevBtn, this.nextBtn, this.openBtn, this.indicator, this.statusBadge];
     for (const el of this.elements) parent.appendChild(el);
   }
 
@@ -125,8 +166,8 @@ export class PdfFloatingButtonsOverlay {
       return;
     }
     if (!pdf.state.assetSlug) {
-      // PRD § Empty state: no slug → no buttons. Issue #12 polishes the
-      // face-side empty treatment.
+      // PRD § Empty state: no slug → no buttons (the face shows the
+      // "No PDF assigned" labelled texture from PdfComponent).
       this.hide();
       return;
     }
@@ -147,6 +188,8 @@ export class PdfFloatingButtonsOverlay {
 
     const page  = pdf.state.currentPage;
     const total = pdf.pageCount();
+    const ref   = formatPdfRef(pdf.state.assetSlug, page);
+    this.syncStatusSubscription(ref);
 
     this.lastEntityId = target.id;
     if (this.lastCurrentPage !== page || this.lastPageCount !== total) {
@@ -157,8 +200,34 @@ export class PdfFloatingButtonsOverlay {
 
     const atFirst = page <= 1;
     const atLast  = total > 0 && page >= total;
-    setDisabled(this.prevBtn, atFirst);
-    setDisabled(this.nextBtn, atLast);
+    const status  = this.currentStatus ?? 'pending';
+
+    // Status drives both button affordance and the centred badge:
+    //   - loaded  → buttons live, no badge.
+    //   - pending → buttons greyed (still positioned), "Loading…" badge.
+    //   - broken  → buttons hidden, "PDF unavailable" badge.
+    if (status === 'broken') {
+      hide(this.prevBtn);
+      hide(this.nextBtn);
+      hide(this.openBtn);
+      hide(this.indicator);
+      this.statusBadge.textContent = 'PDF unavailable';
+      place(this.statusBadge, bot.x, bot.y);
+      return;
+    }
+
+    if (status === 'pending') {
+      setDisabled(this.prevBtn, true);
+      setDisabled(this.nextBtn, true);
+      setDisabled(this.openBtn, true);
+      this.statusBadge.textContent = 'Loading…';
+      place(this.statusBadge, top.x, top.y);
+    } else {
+      setDisabled(this.prevBtn, atFirst);
+      setDisabled(this.nextBtn, atLast);
+      setDisabled(this.openBtn, false);
+      hide(this.statusBadge);
+    }
 
     place(this.prevBtn,   left.x,   left.y);
     place(this.nextBtn,   right.x,  right.y);
@@ -170,13 +239,33 @@ export class PdfFloatingButtonsOverlay {
     this.lastEntityId    = null;
     this.lastCurrentPage = 0;
     this.lastPageCount   = 0;
+    this.releaseStatusSubscription();
     for (const el of this.elements) {
       if (el.style.display !== 'none') el.style.display = 'none';
     }
   }
 
   dispose(): void {
+    this.releaseStatusSubscription();
     for (const el of this.elements) el.remove();
+  }
+
+  private syncStatusSubscription(ref: string): void {
+    if (this.currentRef === ref) return;
+    this.releaseStatusSubscription();
+    this.currentRef = ref;
+    this.currentUnsub = this.subscribeStatus(ref, (s) => {
+      this.currentStatus = s;
+    });
+  }
+
+  private releaseStatusSubscription(): void {
+    if (this.currentUnsub) {
+      this.currentUnsub();
+      this.currentUnsub = null;
+    }
+    this.currentRef    = null;
+    this.currentStatus = null;
   }
 }
 
@@ -208,6 +297,10 @@ function place(el: HTMLElement, x: number, y: number): void {
   el.style.left = `${Math.round(x)}px`;
   el.style.top  = `${Math.round(y)}px`;
   if (el.style.display !== 'block') el.style.display = 'block';
+}
+
+function hide(el: HTMLElement): void {
+  if (el.style.display !== 'none') el.style.display = 'none';
 }
 
 function setDisabled(btn: HTMLButtonElement, disabled: boolean): void {

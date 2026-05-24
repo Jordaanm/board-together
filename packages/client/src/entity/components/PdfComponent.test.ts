@@ -72,12 +72,19 @@ describe('PdfComponent — assetSlug → textureRefs.face', () => {
     expect(mesh.state.textureRefs.face).toBe(formatPdfRef('custom:my-doc', 1));
   });
 
-  test('clearing assetSlug clears textureRefs.face', () => {
+  test('clearing assetSlug swaps the face to the empty-state placeholder', () => {
     const e = scene.spawn('pdf', ctx);
     const pdf = e.getComponent(PdfComponent)!;
     pdf.setState({ assetSlug: 'custom:my-doc' });
     pdf.setState({ assetSlug: '' });
-    expect(e.getComponent(MeshComponent)!.state.textureRefs.face).toBe('');
+    expect(e.getComponent(MeshComponent)!.state.textureRefs.face)
+      .toBe('placeholder://pdf/empty');
+  });
+
+  test('fresh spawn (no assetSlug) starts on the empty-state placeholder', () => {
+    const e = scene.spawn('pdf', ctx);
+    expect(e.getComponent(MeshComponent)!.state.textureRefs.face)
+      .toBe('placeholder://pdf/empty');
   });
 });
 
