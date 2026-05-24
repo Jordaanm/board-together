@@ -26,6 +26,7 @@ import { SceneHistoryService } from '../SceneHistoryService';
 import { GuestInputHandler } from '../../input/GuestInputHandler';
 import { type SceneMessage, type EntityFieldsPartial } from '../wire';
 import { TransformComponent } from '../components/TransformComponent';
+import { PdfComponent as PdfComponentClass } from '../components/PdfComponent';
 import { PhysicsComponent } from '../components/PhysicsComponent';
 import { MeshComponent } from '../components/MeshComponent';
 import { SnapPointsComponent } from '../components/SnapPointsComponent';
@@ -200,6 +201,23 @@ class WorldImpl implements World, HandleRouter {
           add:        (bagId, entityId) => this.bags?.addToBag(bagId, entityId) ?? false,
           remove:     (bagId, entityId) => this.bags?.removeFromBag(bagId, entityId) ?? false,
           pickRandom: (bagId) => this.bags?.pickRandomNoHold(bagId) ?? null,
+        },
+        // Scripts run on host with implicit authority — bypass the
+        // seat gate so a spectator-host can still drive page flips
+        // through the scripting API. Bounds clamping still runs.
+        pdfOps: {
+          setPage: (entityId, page) => {
+            const h = this.get(entityId);
+            h?.entity.getComponent(PdfComponentClass)?.setPageDirect(page);
+          },
+          nextPage: (entityId) => {
+            const h = this.get(entityId);
+            h?.entity.getComponent(PdfComponentClass)?.nextPageDirect();
+          },
+          previousPage: (entityId) => {
+            const h = this.get(entityId);
+            h?.entity.getComponent(PdfComponentClass)?.previousPageDirect();
+          },
         },
       });
       this.installBeginContactHandler();

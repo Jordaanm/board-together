@@ -27,6 +27,7 @@ import { Game } from './Game';
 import { SceneFacade } from './SceneFacade';
 import { type ScriptRunContext } from './EntityFacade';
 import { type BagOps } from './BagFacade';
+import { type PdfOps } from './PdfFacade';
 import { ScriptErrorLog } from './ScriptErrorLog';
 import { makeCapturingConsole, wrapOneShotSource, formatArg, type LogLine } from './ConsoleSandbox';
 import { type EntityScene } from '../entity/EntityComponent';
@@ -65,6 +66,9 @@ export interface ScriptHostOptions {
   // Host-only bag operations backing `EntityFacade.bag`. World wires these
   // against BagService. Issue #4 of issues--bag.md.
   bagOps?: BagOps;
+  // Host-only PDF operations backing `EntityFacade.pdf`. World wires
+  // these against PdfComponent. Issue #15 of issues--pdf.md.
+  pdfOps?: PdfOps;
 }
 
 export type RunResult =
@@ -97,6 +101,7 @@ export class ScriptHost {
   private readonly listAssets_:     ScriptHostOptions['listAssets'];
   private readonly attachSticker_:  ScriptHostOptions['attachSticker'];
   private readonly bagOps_:         ScriptHostOptions['bagOps'];
+  private readonly pdfOps_:         ScriptHostOptions['pdfOps'];
   private turns_:                   ScriptHostOptions['turns'];
   // Bounded ring buffer of script errors surfaced to the script panel
   // (issue #7). Hook errors, listener errors, AND startup-failure errors
@@ -122,6 +127,7 @@ export class ScriptHost {
     this.listAssets_    = opts.listAssets;
     this.attachSticker_ = opts.attachSticker;
     this.bagOps_        = opts.bagOps;
+    this.pdfOps_        = opts.pdfOps;
     this.turns_         = opts.turns;
   }
 
@@ -223,6 +229,7 @@ export class ScriptHost {
           attachSticker: this.attachSticker_,
           turns:         this.turns_,
           bagOps:        this.bagOps_,
+          pdfOps:        this.pdfOps_,
         })
       : {};
 
@@ -313,6 +320,7 @@ export class ScriptHost {
           attachSticker: this.attachSticker_,
           turns:         this.turns_,
           bagOps:        this.bagOps_,
+          pdfOps:        this.pdfOps_,
         })
       : {};
 

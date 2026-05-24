@@ -14,8 +14,10 @@ import { type Listener } from '../entity/EntityEventBus';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { ValueComponent } from '../entity/components/ValueComponent';
 import { BagComponent } from '../entity/components/BagComponent';
+import { PdfComponent } from '../entity/components/PdfComponent';
 import { type ScriptErrorLog } from './ScriptErrorLog';
 import { BagFacade, type BagOps } from './BagFacade';
+import { PdfFacade, type PdfOps } from './PdfFacade';
 
 export interface ReadOnlyComponentView {
   readonly state: Readonly<Record<string, unknown>>;
@@ -60,6 +62,10 @@ export interface ScriptRunContext {
   // issues--bag.md). Absent on guests / unit tests; BagFacade methods then
   // warn and no-op.
   bagOps?:       BagOps;
+  // Host-only PDF operations backing `EntityFacade.pdf` (issue #15 of
+  // issues--pdf.md). Mirrors the bagOps shape: present on host, absent
+  // on guests / unit tests; PdfFacade write methods then warn + no-op.
+  pdfOps?:       PdfOps;
   // Wraps an entity id as the active SceneFacade's cached EntityFacade.
   // SceneFacade injects its own `getObjectById` here in its constructor so
   // child facades (BagFacade.contents, BagFacade.pickRandom) hand scripts
@@ -93,6 +99,13 @@ export class EntityFacade {
   get bag(): BagFacade | null {
     if (!this.entity_.hasComponent(BagComponent)) return null;
     return new BagFacade(this.entity_, this.ctx);
+  }
+
+  // Returns a `PdfFacade` when this entity carries a `PdfComponent`,
+  // else `null`. Same lifetime / statelessness contract as `.bag`.
+  get pdf(): PdfFacade | null {
+    if (!this.entity_.hasComponent(PdfComponent)) return null;
+    return new PdfFacade(this.entity_, this.ctx);
   }
 
   // Returns a frozen view of the component's `state`. No methods, no setState.

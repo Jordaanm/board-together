@@ -89,6 +89,26 @@ export class PdfComponent extends EntityComponent<PdfState> {
   // ── Public mutators (seat-gated) ───────────────────────────────────────
   setPage(n: number, ctx: PdfMutatorContext): void {
     if (ctx.recipientSeat === null) return;
+    this.applyPage(n);
+  }
+
+  nextPage(ctx: PdfMutatorContext): void {
+    this.setPage(this.state.currentPage + 1, ctx);
+  }
+
+  previousPage(ctx: PdfMutatorContext): void {
+    this.setPage(this.state.currentPage - 1, ctx);
+  }
+
+  // Programmatic mutators — host-only, bypass the seat gate. Used by
+  // the scripting facade (`entity.pdf.setPage`) so scripts run even
+  // when the host has no seat assigned, and by host-side automations
+  // that already have authority.
+  setPageDirect(n: number): void { this.applyPage(n); }
+  nextPageDirect():        void { this.applyPage(this.state.currentPage + 1); }
+  previousPageDirect():    void { this.applyPage(this.state.currentPage - 1); }
+
+  private applyPage(n: number): void {
     if (!this.state.assetSlug) return;
     const count   = this.pageCount();
     const upper   = count > 0 ? count : n; // unknown count → trust input upper
@@ -98,14 +118,6 @@ export class PdfComponent extends EntityComponent<PdfState> {
     const from = this.state.currentPage;
     this.setState({ currentPage: clamped });
     this.entity.dispatchEvent<PdfPageChanged>('pdf:page-changed', { from, to: clamped });
-  }
-
-  nextPage(ctx: PdfMutatorContext): void {
-    this.setPage(this.state.currentPage + 1, ctx);
-  }
-
-  previousPage(ctx: PdfMutatorContext): void {
-    this.setPage(this.state.currentPage - 1, ctx);
   }
 
   // Pure-action surface. Lets the floating buttons (Issue #8) and the

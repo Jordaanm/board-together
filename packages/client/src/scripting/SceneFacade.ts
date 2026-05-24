@@ -13,6 +13,7 @@
 import { type EntityScene } from '../entity/EntityComponent';
 import { EntityFacade, type ScriptRunContext } from './EntityFacade';
 import { type BagOps } from './BagFacade';
+import { type PdfOps } from './PdfFacade';
 import { type AssetEntry, type AssetType } from '../assets/Manifest';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
 import { type StickerOpts } from '../entity/components/attachSticker';
@@ -51,6 +52,7 @@ export interface SceneFacadeOptions {
   // against BagService. Absent on guests; BagFacade then warns and no-ops.
   // Issue #4 of issues--bag.md.
   bagOps?: BagOps;
+  pdfOps?: PdfOps;
 }
 
 // Read-only catalog surface exposed as `scene.assets`. Returns deeply frozen
@@ -111,6 +113,7 @@ export class SceneFacade {
     // warn-and-no-ops; wrapEntity is always wired so contents/pickRandom
     // hand back the same cached EntityFacade instances getObjectById serves.
     if (opts.bagOps) ctx.bagOps = opts.bagOps;
+    if (opts.pdfOps) ctx.pdfOps = opts.pdfOps;
     ctx.wrapEntity = (id: string) => this.getObjectById(id);
   }
 

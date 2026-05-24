@@ -9,7 +9,7 @@ type Listener = (payload: unknown) => void;
 
 type SeatIndex = number;
 
-type AssetType = 'image' | 'model' | 'sound' | 'spritesheet';
+type AssetType = 'image' | 'model' | 'sound' | 'spritesheet' | 'pdf';
 
 interface AssetEntry {
     readonly slug: string;
@@ -24,6 +24,8 @@ interface AssetEntry {
     readonly bundled?: boolean;
     readonly hash?: string;
     readonly size?: number;
+    readonly aspectRatio?: number;
+    readonly pageCount?: number;
 }
 
 declare class AssetsApi {
@@ -87,7 +89,16 @@ interface StickerOpts {
     };
 }
 
-type EntityEvent = 'pressed' | 'released' | 'click' | 'hover-start' | 'hover-move' | 'hover-end' | 'value-changed';
+type EntityEvent = 'pressed' | 'released' | 'click' | 'hover-start' | 'hover-move' | 'hover-end' | 'value-changed' | 'pdf:page-changed';
+
+declare class PdfFacade {
+  readonly currentPage: number;
+  readonly pageCount: number;
+  readonly assetSlug: string;
+  setPage(n: number): void;
+  nextPage(): void;
+  previousPage(): void;
+}
 
 declare class EntityFacade {
   readonly id: string;
@@ -95,6 +106,7 @@ declare class EntityFacade {
   readonly name: string;
   readonly owner: SeatIndex | null;
   readonly tags: string[];
+  readonly pdf: PdfFacade | null;
   getComponent(typeId: string): ReadOnlyComponentView | undefined;
   addEventListener(event: EntityEvent, cb: Listener): void;
   removeEventListener(event: EntityEvent, cb: Listener): void;

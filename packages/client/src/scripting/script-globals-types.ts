@@ -30,7 +30,7 @@ export type EditorListener = (payload: unknown) => void;
 // Mirrors the runtime SeatIndex shape (number, narrowed by host code).
 export type EditorSeatIndex = number;
 
-export type EditorAssetType = 'image' | 'model' | 'sound' | 'spritesheet';
+export type EditorAssetType = 'image' | 'model' | 'sound' | 'spritesheet' | 'pdf';
 
 export interface EditorAssetEntry {
   readonly slug:         string;
@@ -45,6 +45,8 @@ export interface EditorAssetEntry {
   readonly bundled?:     boolean;
   readonly hash?:        string;
   readonly size?:        number;
+  readonly aspectRatio?: number;
+  readonly pageCount?:   number;
 }
 
 export class EditorAssetsApi {
@@ -96,7 +98,21 @@ export type EditorEntityEvent =
   | 'hover-start'
   | 'hover-move'
   | 'hover-end'
-  | 'value-changed';
+  | 'value-changed'
+  | 'pdf:page-changed';
+
+// Per-PDF-entity facade exposed at `entity.pdf`. Read fields are always
+// available; mutators are host-only and no-op with a sandbox warning
+// when called on a guest context.
+export class EditorPdfFacade {
+  declare readonly currentPage: number;
+  declare readonly pageCount:   number;
+  declare readonly assetSlug:   string;
+
+  setPage(n: number): void { void n; }
+  nextPage(): void {}
+  previousPage(): void {}
+}
 
 export class EditorEntityFacade {
   declare readonly id:    string;
@@ -104,6 +120,7 @@ export class EditorEntityFacade {
   declare readonly name:  string;
   declare readonly owner: EditorSeatIndex | null;
   declare readonly tags:  string[];
+  declare readonly pdf:   EditorPdfFacade | null;
 
   getComponent(typeId: string): EditorReadOnlyComponentView | undefined { void typeId; return undefined; }
   addEventListener(event: EditorEntityEvent, cb: EditorListener): void { void event; void cb; }
