@@ -7,8 +7,6 @@
 // text layer on top of the canvas for selectable/copyable text.
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useAnchorTarget } from './AnchorLayout';
-import { createPortal } from 'react-dom';
 import { assetService } from '../assets/AssetService';
 import { renderPageCanvas } from '../assets/pdf/PdfPageRenderer';
 import { loadPdfjs } from '../assets/pdf/pdfjsLoader';
@@ -187,9 +185,14 @@ export function PdfOverlaySheet({ controller }: Props) {
     () => null,
   );
 
-  const anchor = useAnchorTarget('middle-right');
-  if (state === null || !anchor) return null;
-  return createPortal(<SheetBody controller={controller} state={state} />, anchor);
+  // Rendered inline (no portal) so the sheet's `position: fixed`
+  // resolves against the viewport. Portaling into AnchorLayout's
+  // `middle-right` anchor pulled the sheet inside a `transform`ed
+  // ancestor, which CSS treats as the containing block for fixed
+  // children — drag coordinates from `getBoundingClientRect` then
+  // jumped offscreen when re-applied as `left/top`.
+  if (state === null) return null;
+  return <SheetBody controller={controller} state={state} />;
 }
 
 function SheetBody({
@@ -437,7 +440,7 @@ function SheetBody({
   };
 
   const placement: React.CSSProperties = position
-    ? { left: position.x, top: position.y }
+    ? { left: position.x, top: position.y, right: 'auto', transform: 'none' }
     : DEFAULT_PLACEMENT;
 
   return (

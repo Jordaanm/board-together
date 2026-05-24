@@ -229,9 +229,10 @@ describe('PdfOverlaySheet — drag-to-reposition', () => {
     dispatchPointer(h, 'pointermove', { clientX: 700, clientY: 350 });
     dispatchPointer(h, 'pointerup',   { clientX: 700, clientY: 350 });
     const sheet = screen.getByRole('dialog');
-    expect(sheet.style.left).toBe('600px'); // 800 + (700-900) = 600
-    expect(sheet.style.top).toBe('330px');  // 200 + (350-220) = 330
-    expect(sheet.style.right).toBe('');     // override removed
+    expect(sheet.style.left).toBe('600px');   // 800 + (700-900) = 600
+    expect(sheet.style.top).toBe('330px');    // 200 + (350-220) = 330
+    expect(sheet.style.right).toBe('auto');   // anchor's right override cleared
+    expect(sheet.style.transform).toBe('none');
   });
 
   test('clicking the close button inside the header does not start a drag', () => {
