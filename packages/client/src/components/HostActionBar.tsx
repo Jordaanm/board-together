@@ -13,6 +13,7 @@ import { ScriptConsoleModal } from './ScriptConsoleModal';
 import { AssetManagerModal } from './AssetManagerModal';
 import { type BundleStore } from '../assets/BundleStore';
 import { type BundleCache } from '../assets/BundleCache';
+import { PdfComponent } from '../entity/components/PdfComponent';
 import { GenerateDeckModal, type GenerateDeckRequest } from './GenerateDeckModal';
 import { HostToolsMenu, type MenuEntry } from './HostToolsMenu';
 import { RoomSettingsModal } from './RoomSettingsModal';
@@ -247,6 +248,10 @@ export function HostActionBar({
         hideTrigger
         bundleStore={bundleStore}
         bundleCache={bundleCache}
+        onSpawnPdf={(slug) => {
+          const h = handle.controller.spawn('pdf');
+          h.entity.getComponent(PdfComponent)?.setState({ assetSlug: slug });
+        }}
       />
       <GenerateDeckModal
         store={manifestStore}

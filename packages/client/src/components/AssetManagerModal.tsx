@@ -51,6 +51,10 @@ interface Props {
   // exposes "Convert back to URL" on bundled entries.
   bundleStore?:  BundleStore;
   bundleCache?:  BundleCache;
+  // Wires a "Spawn on Table" button onto PDF rows. Receives the row's
+  // slug; the host (Room) spawns a `pdf` entity with `assetSlug` set to
+  // that slug and closes the modal.
+  onSpawnPdf?:   (slug: string) => void;
 }
 
 type TabId = 'primitives' | 'base' | 'custom';
@@ -336,7 +340,7 @@ const WARNING_BADGE: React.CSSProperties = {
 
 export function AssetManagerModal({
   store, onPush, open: controlledOpen, onOpenChange, hideTrigger,
-  bundleStore, bundleCache,
+  bundleStore, bundleCache, onSpawnPdf,
 }: Props) {
   const centerAnchor    = useAnchorTarget('center');
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -377,6 +381,7 @@ export function AssetManagerModal({
                   store={store}
                   bundleStore={bundleStore}
                   bundleCache={bundleCache}
+                  onSpawnPdf={onSpawnPdf ? (slug) => { onSpawnPdf(slug); setOpen(false); } : undefined}
                 />
               )}
             </div>
@@ -501,11 +506,12 @@ function isSyntheticUrl(url: string): boolean {
 }
 
 function CustomTab({
-  store, bundleStore, bundleCache,
+  store, bundleStore, bundleCache, onSpawnPdf,
 }: {
   store:        ManifestStore;
   bundleStore?: BundleStore;
   bundleCache?: BundleCache;
+  onSpawnPdf?:  (slug: string) => void;
 }) {
   const draft = useSyncExternalStore(
     (cb) => store.subscribe(cb),
@@ -548,6 +554,7 @@ function CustomTab({
               onDelete={() => store.editDraft((d) => d.delete(e.slug))}
               bundleStore={bundleStore}
               bundleCache={bundleCache}
+              onSpawnPdf={onSpawnPdf}
             />
       )}
     </>
@@ -555,7 +562,7 @@ function CustomTab({
 }
 
 function CustomRow({
-  entry, store, onEdit, onDelete, bundleStore, bundleCache,
+  entry, store, onEdit, onDelete, bundleStore, bundleCache, onSpawnPdf,
 }: {
   entry:        AssetEntry;
   store:        ManifestStore;
@@ -563,6 +570,7 @@ function CustomRow({
   onDelete:     () => void;
   bundleStore?: BundleStore;
   bundleCache?: BundleCache;
+  onSpawnPdf?:  (slug: string) => void;
 }) {
   const status = useAssetStatus(entry);
   const [bundling, setBundling] = useState(false);
@@ -612,6 +620,16 @@ function CustomRow({
       <div style={ROW_TYPE}>{typeLabel(entry.type)}</div>
       <div style={ROW_SIZE}>{entry.bundled === true && typeof entry.size === 'number' ? formatBytes(entry.size) : ''}</div>
       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+        {entry.type === 'pdf' && onSpawnPdf && (
+          <button
+            type="button"
+            style={SMALL_BTN}
+            onClick={() => onSpawnPdf(entry.slug)}
+            title="Spawn a PDF entity on the table wired to this asset."
+          >
+            Spawn
+          </button>
+        )}
         {canBundleThis && (
           <button
             type="button"
