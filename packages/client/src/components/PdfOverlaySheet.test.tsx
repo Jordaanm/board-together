@@ -171,6 +171,98 @@ describe('PdfOverlaySheet — page sync from controller', () => {
   });
 });
 
+describe('PdfOverlaySheet — drag-to-reposition', () => {
+  function header(): HTMLElement {
+    const sheet = screen.getByRole('dialog');
+    const h = sheet.querySelector('header');
+    if (!h) throw new Error('header not found');
+    return h as HTMLElement;
+  }
+
+  // jsdom 25 doesn't implement PointerEvent, so RTL's fireEvent.pointerDown
+  // can't carry clientX / button / pointerId through to the React
+  // synthetic event. Dispatch a MouseEvent with the matching type so
+  // React's onPointer* handlers fire with populated coords.
+  function dispatchPointer(
+    el: HTMLElement,
+    type: 'pointerdown' | 'pointermove' | 'pointerup',
+    init: { clientX?: number; clientY?: number; button?: number; pointerId?: number },
+  ): void {
+    const ev = new MouseEvent(type, {
+      bubbles: true, cancelable: true,
+      clientX: init.clientX ?? 0,
+      clientY: init.clientY ?? 0,
+      button:  init.button  ?? 0,
+    });
+    Object.defineProperty(ev, 'pointerId', { value: init.pointerId ?? 1 });
+    // pointer-capture stubs — jsdom doesn't ship them.
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    if (!proto.setPointerCapture)     proto.setPointerCapture     = () => {};
+    if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {};
+    if (!proto.hasPointerCapture)     proto.hasPointerCapture     = () => false;
+    act(() => { el.dispatchEvent(ev); });
+  }
+
+  function stubRect(left = 800, top = 200, width = 480, height = 600): void {
+    const sheet = screen.getByRole('dialog');
+    Object.defineProperty(sheet, 'getBoundingClientRect', {
+      value: () => ({
+        left, top, right: left + width, bottom: top + height,
+        width, height, x: left, y: top, toJSON: () => ({}),
+      }),
+      configurable: true,
+    });
+  }
+
+  test('default position uses the right-edge anchor (right: 16px)', () => {
+    setup();
+    const sheet = screen.getByRole('dialog');
+    expect(sheet.style.right).toBe('16px');
+    expect(sheet.style.left).toBe('');
+  });
+
+  test('pointer-drag on the header repositions the sheet via left/top', () => {
+    setup();
+    stubRect();
+    const h = header();
+    dispatchPointer(h, 'pointerdown', { clientX: 900, clientY: 220 });
+    dispatchPointer(h, 'pointermove', { clientX: 700, clientY: 350 });
+    dispatchPointer(h, 'pointerup',   { clientX: 700, clientY: 350 });
+    const sheet = screen.getByRole('dialog');
+    expect(sheet.style.left).toBe('600px'); // 800 + (700-900) = 600
+    expect(sheet.style.top).toBe('330px');  // 200 + (350-220) = 330
+    expect(sheet.style.right).toBe('');     // override removed
+  });
+
+  test('clicking the close button inside the header does not start a drag', () => {
+    const { controller } = setup();
+    dispatchPointer(screen.getByLabelText('Close'), 'pointerdown', { clientX: 10, clientY: 10 });
+    expect(screen.getByRole('dialog').style.left).toBe('');
+    fireEvent.click(screen.getByLabelText('Close'));
+    expect(controller.getState()).toBeNull();
+  });
+
+  test('pointerdown on the nav buttons does not start a drag', () => {
+    setup(2);
+    dispatchPointer(screen.getByLabelText('Next page'), 'pointerdown', { clientX: 0, clientY: 0 });
+    dispatchPointer(header(),                           'pointermove', { clientX: 50, clientY: 50 });
+    dispatchPointer(header(),                           'pointerup',   { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('dialog').style.left).toBe('');
+  });
+
+  test('drag clamps so the sheet keeps at least 40px visible on each edge', () => {
+    setup();
+    stubRect();
+    const h = header();
+    dispatchPointer(h, 'pointerdown', { clientX: 900,    clientY: 220 });
+    dispatchPointer(h, 'pointermove', { clientX: -10000, clientY: -10000 });
+    const sheet = screen.getByRole('dialog');
+    // Width 480, minVisible 40 → leftmost allowed = 40 - 480 = -440.
+    expect(Number(sheet.style.left.replace('px', ''))).toBeGreaterThanOrEqual(-440);
+    expect(Number(sheet.style.top.replace('px',  ''))).toBeGreaterThanOrEqual(0);
+  });
+});
+
 describe('PdfOverlaySheet — text layer', () => {
   test('stamps the text-layer stylesheet into the document', () => {
     setup();

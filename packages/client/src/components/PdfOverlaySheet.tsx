@@ -25,9 +25,14 @@ interface Props {
   controller: PdfOverlayController;
 }
 
-const SHEET: React.CSSProperties = {
-  position:      'absolute',
-  right:         16,
+// Sheet position is `fixed` so the drag handler can use raw viewport
+// coordinates regardless of how the surrounding `<AnchorLayout>`
+// transform-positions its anchors. The default placement (right edge,
+// vertically centred) is restored via `DEFAULT_PLACEMENT` whenever the
+// user hasn't dragged it; once dragged, `position` overrides with
+// absolute `left/top`.
+const SHEET_BASE: React.CSSProperties = {
+  position:      'fixed',
   width:         480,
   maxHeight:     'calc(100vh - 32px)',
   background:    'var(--surface)',
@@ -43,6 +48,12 @@ const SHEET: React.CSSProperties = {
   pointerEvents: 'auto',
 };
 
+const DEFAULT_PLACEMENT: React.CSSProperties = {
+  right:     16,
+  top:       '50%',
+  transform: 'translateY(-50%)',
+};
+
 const HEADER: React.CSSProperties = {
   display:        'flex',
   alignItems:     'center',
@@ -51,6 +62,9 @@ const HEADER: React.CSSProperties = {
   borderBottom:   '1px solid var(--line)',
   flexShrink:     0,
   gap:            6,
+  cursor:         'move',
+  userSelect:     'none',
+  touchAction:    'none',
 };
 
 const TITLE: React.CSSProperties = {
@@ -190,6 +204,10 @@ function SheetBody({
   // Local draft for the page-input — lets the user type partial values
   // ("12") without the controller seeing every keystroke.
   const [pageInputDraft, setPageInputDraft] = useState<string>(String(state.page));
+  // User-dragged viewport position. `null` → use DEFAULT_PLACEMENT (the
+  // right-edge / vertically-centred anchor). Set by header drag handlers
+  // below.
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
 
   // pageCount is pulled from the manifest entry. Read once per slug —
   // the value is upload-time-fixed for that PDF.
@@ -357,17 +375,88 @@ function SheetBody({
     goTo(n);
   };
 
+  // Drag-to-reposition. The header is the handle; child buttons + input
+  // bail out so clicking them doesn't initiate a drag. While dragging,
+  // pointer capture keeps the move/up events flowing to the header even
+  // if the cursor leaves it. Position is local to the SheetBody instance
+  // — closing + re-opening the controller resets to the default anchor.
+  const startDragInfo = useRef<{ pointerId: number; startClientX: number; startClientY: number; startX: number; startY: number } | null>(null);
+
+  const onHeaderPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    // jsdom doesn't implement PointerEvent, so `e.button` arrives
+    // undefined under fireEvent. Treat undefined as "primary"; only
+    // bail when a real non-zero button is set (right-click / middle).
+    if (typeof e.button === 'number' && e.button !== 0) return;
+    // Don't hijack pointerdowns destined for the nav controls / close /
+    // page input — those handle their own clicks.
+    const t = e.target as HTMLElement | null;
+    if (t && t.closest('button, input')) return;
+    const sheet = containerRef.current;
+    if (!sheet) return;
+    const rect = sheet.getBoundingClientRect();
+    startDragInfo.current = {
+      pointerId:    e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX:       rect.left,
+      startY:       rect.top,
+    };
+    // setPointerCapture isn't implemented in jsdom; guard so tests
+    // that don't stub it don't throw.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch { /* unsupported environment */ }
+    e.preventDefault();
+  };
+
+  const onHeaderPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = startDragInfo.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    const sheet = containerRef.current;
+    const w = sheet?.offsetWidth  ?? 480;
+    const h = sheet?.offsetHeight ?? 200;
+    // Clamp so at least a 40px strip of the sheet stays inside the
+    // viewport — prevents the user from losing the panel off-screen.
+    const minVisible = 40;
+    const clampedX = Math.max(minVisible - w, Math.min(window.innerWidth  - minVisible, drag.startX + dx));
+    const clampedY = Math.max(0,              Math.min(window.innerHeight - minVisible, drag.startY + dy));
+    setPosition({ x: clampedX, y: clampedY });
+  };
+
+  const onHeaderPointerUp = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = startDragInfo.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    startDragInfo.current = null;
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch { /* unsupported environment */ }
+  };
+
+  const placement: React.CSSProperties = position
+    ? { left: position.x, top: position.y }
+    : DEFAULT_PLACEMENT;
+
   return (
     <div
       ref={containerRef}
-      style={SHEET}
+      style={{ ...SHEET_BASE, ...placement }}
       role="dialog"
       aria-label="PDF viewer"
       tabIndex={-1}
       onKeyDown={onKeyDown}
     >
       <style>{TEXT_LAYER_CSS}</style>
-      <header style={HEADER}>
+      <header
+        style={HEADER}
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+        onPointerCancel={onHeaderPointerUp}
+      >
         <span style={TITLE}>{state.assetSlug}</span>
         <div style={NAV_ROW}>
           <button
