@@ -27,7 +27,7 @@ import { type ContextMenuRequest, dispatchMenuAction } from '../input/ContextMen
 import { type MenuItem } from '../entity/EntityComponent';
 import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
-import { SelectionStore } from '../input/SelectionStore';
+import { applySelectionClick, SelectionStore, type SelectionClickModifier } from '../input/SelectionStore';
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
@@ -173,7 +173,7 @@ export function Room({ roomId, isHost }: Props) {
   // effect sees the latest open-state without re-running.
   const isMenuOpenRef      = useRef<() => boolean>(() => false);
   const freeCameraRef      = useRef<(on: boolean) => void>(noop);
-  const onSelectRef        = useRef<(id: string | null) => void>(noop);
+  const onSelectRef        = useRef<(id: string | null, modifier: SelectionClickModifier) => void>(noop);
   const setSelectionRef    = useRef<(ids: ReadonlySet<string>) => void>(noop);
   const onEntityRemovedRef = useRef<(id: string) => void>(noop);
   const setActiveToolRef   = useRef<(toolId: string) => boolean>(() => false);
@@ -199,7 +199,13 @@ export function Room({ roomId, isHost }: Props) {
   // Set every render — fine, it's just a ref assignment.
   onContextMenuRef.current   = (req) => setContextMenu(req);
   isMenuOpenRef.current      = () => contextMenu !== null;
-  onSelectRef.current        = (id) => setSelectedId(id);
+  onSelectRef.current        = (id, modifier) => {
+    selectionStore.setState(applySelectionClick({
+      state:    selectionStore.ids(),
+      targetId: id,
+      modifier,
+    }));
+  };
   getActiveToolRef.current   = () => activeToolId;
   setHandViewRef.current     = (view) => setHandView(view);
   getRoomSnapshotRef.current = () => roomSnapshot;

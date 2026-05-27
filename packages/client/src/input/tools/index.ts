@@ -13,6 +13,7 @@ import { FlickArrowAttachment } from './FlickArrowAttachment';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
 import { type Tool } from './types';
+import { type SelectionClickModifier } from '../SelectionStore';
 
 export { ToolDispatcher, type ToolDispatcherDeps } from './ToolDispatcher';
 export { GrabTool } from './GrabTool';
@@ -27,7 +28,7 @@ export type { Tool, ToolContext, ToolPointerEvent, ToolAttachment } from './type
 export interface ToolFactoryDeps {
   scene:     THREE.Scene;
   moveGizmo: MoveGizmo;
-  onSelect:  (id: string | null) => void;
+  onSelect:  (id: string | null, modifier: SelectionClickModifier) => void;
 }
 
 export interface ToolFactory {

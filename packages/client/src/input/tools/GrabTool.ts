@@ -24,6 +24,7 @@ import { projectRayOntoAxis } from '../axisDrag';
 import { resolveDragTarget } from '../DragTargetResolver';
 import { MeshComponent } from '../../entity/components/MeshComponent';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
+import { type SelectionClickModifier } from '../SelectionStore';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
 import { type DropPreviewGhost } from './DropPreviewGhost';
@@ -39,6 +40,7 @@ type Pending = {
   startY:    number;
   startT:    number;
   pointerId: number;
+  modifier:  SelectionClickModifier;
 };
 
 type AxisDrag = {
@@ -79,7 +81,7 @@ export class GrabTool implements Tool {
   readonly hotkey = '1';
 
   private pending:      Pending | null = null;
-  private pendingEmpty: { pointerId: number } | null = null;
+  private pendingEmpty: { pointerId: number; modifier: SelectionClickModifier } | null = null;
   private pendingPeel:  PendingPeel | null = null;
   private carry:        CarryDrag | null = null;
   private axisDrag:     AxisDrag  | null = null;
@@ -119,7 +121,7 @@ export class GrabTool implements Tool {
     private readonly attachment:        AxisGizmoAttachment,
     private readonly hitboxAttachment:  HitboxAttachment,
     private readonly dropPreviewGhost:  DropPreviewGhost,
-    private readonly onSelect:          (id: string | null) => void,
+    private readonly onSelect:          (id: string | null, modifier: SelectionClickModifier) => void,
   ) {}
 
   // Exposed for the host-side toggle. ThreeCanvas calls this when the
@@ -172,6 +174,11 @@ export class GrabTool implements Tool {
     if (e.button !== 0) return;
     if (this.carry || this.axisDrag || this.pending || this.pendingEmpty || this.pendingPeel) return;
 
+    const modifier: SelectionClickModifier =
+        e.shiftKey ? 'shift'
+      : e.ctrlKey  ? 'ctrl'
+      :              'plain';
+
     // Gizmo arms take priority over the object body.
     ctx.raycaster.set(e.ray.origin, e.ray.direction);
     const axisName = this.gizmo.pickAxis(ctx.raycaster);
@@ -197,7 +204,7 @@ export class GrabTool implements Tool {
     const hits = ctx.raycaster.intersectObjects(meshes, true);
 
     if (hits.length === 0) {
-      this.pendingEmpty = { pointerId: e.pointerId };
+      this.pendingEmpty = { pointerId: e.pointerId, modifier };
       ctx.element.setPointerCapture(e.pointerId);
       return;
     }
@@ -209,7 +216,7 @@ export class GrabTool implements Tool {
     // through to pendingEmpty (instead of returning a no-op) means a
     // short-press release still clears any prior selection.
     if (handle.entity.hasComponent(TableComponent)) {
-      this.pendingEmpty = { pointerId: e.pointerId };
+      this.pendingEmpty = { pointerId: e.pointerId, modifier };
       ctx.element.setPointerCapture(e.pointerId);
       return;
     }
@@ -221,6 +228,7 @@ export class GrabTool implements Tool {
       startY:    e.clientY,
       startT:    e.timestamp,
       pointerId: e.pointerId,
+      modifier,
     };
     ctx.element.setPointerCapture(e.pointerId);
   }
@@ -323,13 +331,13 @@ export class GrabTool implements Tool {
     }
 
     if (this.pending) {
-      this.onSelect(this.pending.handle.id);
+      this.onSelect(this.pending.handle.id, this.pending.modifier);
       this.pending = null;
       return;
     }
 
     if (this.pendingEmpty) {
-      this.onSelect(null);
+      this.onSelect(null, this.pendingEmpty.modifier);
       this.pendingEmpty = null;
     }
   }

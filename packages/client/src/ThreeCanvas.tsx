@@ -40,6 +40,7 @@ import { TABLE_SURFACE_Y } from './scene/Table';
 import { type ChannelMessage } from './net/SceneState';
 import { type SeatIndex } from './seats/SeatLayout';
 import { type RoomStateSnapshot } from './seats/RoomState';
+import { type SelectionClickModifier } from './input/SelectionStore';
 
 export interface ReplicationTarget {
   peerId:   string;
@@ -70,7 +71,7 @@ interface Props {
   onContextMenuRef:    MutableRefObject<(req: ContextMenuRequest) => void>;
   isMenuOpenRef:       MutableRefObject<() => boolean>;
   freeCameraRef:       MutableRefObject<(on: boolean) => void>;
-  onSelectRef:         MutableRefObject<(id: string | null) => void>;
+  onSelectRef:         MutableRefObject<(id: string | null, modifier: SelectionClickModifier) => void>;
   setSelectionRef:     MutableRefObject<(ids: ReadonlySet<string>) => void>;
   // Canvas → Room callback fired when an entity in the current selection
   // is removed from the world. Room responds by dropping the id from the
@@ -308,7 +309,8 @@ export function ThreeCanvas({
       return null;
     };
 
-    const selectCallback = (id: string | null) => onSelectRef.current(id);
+    const selectCallback = (id: string | null, modifier: SelectionClickModifier) =>
+      onSelectRef.current(id, modifier);
 
     // ── Input wiring ────────────────────────────────────────────────────
     // ToolDispatcher owns pointer events and routes left-click to the active
