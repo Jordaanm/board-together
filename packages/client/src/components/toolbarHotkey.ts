@@ -4,8 +4,10 @@
 // suppress-on-repeat rules can be unit tested without a DOM.
 
 interface KeyEventLike {
-  key:    string;
-  repeat: boolean;
+  key:      string;
+  repeat:   boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
 }
 
 interface ToolSlot {
@@ -13,8 +15,9 @@ interface ToolSlot {
 }
 
 // Returns the tool id to activate, or null if the event should be ignored.
-// Numeric keys 1..N map to slot order; suppressed when a text input is
-// focused or when the event is a key-repeat.
+// Ctrl+digit (or Cmd+digit on mac) 1..N maps to slot order; suppressed when a
+// text input is focused or when the event is a key-repeat. Bare digits resolve
+// to null so the layout hotkey can claim them.
 export function resolveHotkey(
   e:                 KeyEventLike,
   catalogue:         readonly ToolSlot[],
@@ -22,6 +25,7 @@ export function resolveHotkey(
 ): string | null {
   if (e.repeat) return null;
   if (textInputFocused) return null;
+  if (!e.ctrlKey && !e.metaKey) return null;
   // Only single-digit number keys; '10' is two events (1 then 0), not '10'.
   if (e.key.length !== 1) return null;
   const idx = parseInt(e.key, 10);

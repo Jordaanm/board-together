@@ -23,7 +23,7 @@ export function Toolbar({ activeToolId, onSelectTool }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const id = resolveHotkey(
-        { key: e.key, repeat: e.repeat },
+        { key: e.key, repeat: e.repeat, ctrlKey: e.ctrlKey, metaKey: e.metaKey },
         TOOL_CATALOGUE,
         isTextInputFocused(),
       );
