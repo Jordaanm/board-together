@@ -160,6 +160,11 @@ export class GrabTool implements Tool {
     private readonly marqueeOverlay:    MarqueeOverlay,
     private readonly onSelect:          (id: string | null, modifier: SelectionClickModifier) => void,
     private readonly onMarqueeCommit:   (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void,
+    // Slice #3 — live candidate push for the cyan decoration in
+    // ThreeCanvas. Called on each frame of the marquee gesture with the
+    // current candidate set, plus once with an empty set on release /
+    // cancel so the decoration tears down.
+    private readonly onMarqueeChange:   (candidates: ReadonlySet<string>) => void = () => {},
   ) {}
 
   // Exposed for the host-side toggle. ThreeCanvas calls this when the
@@ -374,6 +379,7 @@ export class GrabTool implements Tool {
       const { candidates, modifier } = this.marqueeDrag;
       this.marqueeDrag = null;
       this.marqueeOverlay.detach();
+      this.onMarqueeChange(new Set());
       this.onMarqueeCommit(candidates, modifier);
       return;
     }
@@ -581,6 +587,7 @@ export class GrabTool implements Tool {
     if (this.marqueeDrag) {
       this.marqueeDrag = null;
       this.marqueeOverlay.detach();
+      this.onMarqueeChange(new Set());
     }
     if (this.pendingPeel) {
       this.cleanupPendingPeel(ctx);
@@ -782,6 +789,7 @@ export class GrabTool implements Tool {
       inputs.push({ id: h.id, worldPosition: obj.position });
     });
     md.candidates = entitiesInMarquee(inputs, ndcRect, ctx.camera);
+    this.onMarqueeChange(md.candidates);
   }
 
   // Cursor angle around the centroid in the XZ (table) plane. Pointer ray

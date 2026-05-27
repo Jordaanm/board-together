@@ -176,6 +176,7 @@ export function Room({ roomId, isHost }: Props) {
   const onSelectRef        = useRef<(id: string | null, modifier: SelectionClickModifier) => void>(noop);
   const onMarqueeCommitRef = useRef<(candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void>(noop);
   const setSelectionRef    = useRef<(ids: ReadonlySet<string>) => void>(noop);
+  const setMarqueeCandidatesRef = useRef<(ids: ReadonlySet<string>) => void>(noop);
   const onEntityRemovedRef = useRef<(id: string) => void>(noop);
   const setActiveToolRef   = useRef<(toolId: string) => boolean>(() => false);
   const getActiveToolRef   = useRef<() => string>(() => activeToolId);
@@ -843,6 +844,7 @@ export function Room({ roomId, isHost }: Props) {
         onSelectRef={onSelectRef}
         onMarqueeCommitRef={onMarqueeCommitRef}
         setSelectionRef={setSelectionRef}
+        setMarqueeCandidatesRef={setMarqueeCandidatesRef}
         onEntityRemovedRef={onEntityRemovedRef}
         setActiveToolRef={setActiveToolRef}
         getActiveToolRef={getActiveToolRef}

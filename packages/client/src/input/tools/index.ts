@@ -36,6 +36,7 @@ export interface ToolFactoryDeps {
   moveGizmo:       MoveGizmo;
   onSelect:        (id: string | null, modifier: SelectionClickModifier) => void;
   onMarqueeCommit: (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void;
+  onMarqueeChange: (candidates: ReadonlySet<string>) => void;
 }
 
 export interface ToolFactory {
@@ -62,6 +63,7 @@ export const TOOL_CATALOGUE: ToolFactory[] = [
         new MarqueeOverlay(deps.canvasContainer),
         deps.onSelect,
         deps.onMarqueeCommit,
+        deps.onMarqueeChange,
       );
     },
   },

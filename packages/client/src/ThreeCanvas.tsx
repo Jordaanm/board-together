@@ -77,6 +77,10 @@ interface Props {
   // SelectionStore and pushes the result.
   onMarqueeCommitRef:  MutableRefObject<(candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void>;
   setSelectionRef:     MutableRefObject<(ids: ReadonlySet<string>) => void>;
+  // Slice #3 of marquee — push of the live candidate set. Drives the cyan
+  // BoxHelper preview that contrasts with the yellow committed-selection
+  // helpers. Empty set tears down the decoration.
+  setMarqueeCandidatesRef: MutableRefObject<(ids: ReadonlySet<string>) => void>;
   // Canvas → Room callback fired when an entity in the current selection
   // is removed from the world. Room responds by dropping the id from the
   // SelectionStore. Replaces the per-selection "is selected entity gone"
@@ -110,7 +114,7 @@ export function ThreeCanvas({
   onContextMenuRef,
   isMenuOpenRef,
   freeCameraRef,
-  onSelectRef, onMarqueeCommitRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+  onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
   setShowHitboxesRef,
@@ -280,6 +284,11 @@ export function ThreeCanvas({
     // each entry's `update()` runs per frame.
     const highlightHelpers = new Map<string, THREE.BoxHelper>();
     let   selectedIds: ReadonlySet<string> = new Set();
+    // Parallel candidate-decoration map for the marquee preview. Different
+    // color from the committed-selection helpers so the user can see
+    // "have" vs "will get" simultaneously.
+    const candidateHelpers = new Map<string, THREE.BoxHelper>();
+    const CANDIDATE_COLOR  = 0x4dd0e1;  // cyan
     const moveGizmo    = new MoveGizmo();
 
     const removeHighlight = (id: string) => {
@@ -304,6 +313,28 @@ export function ThreeCanvas({
       highlightHelpers.set(id, helper);
     };
 
+    const removeCandidate = (id: string) => {
+      const helper = candidateHelpers.get(id);
+      if (!helper) return;
+      scene.remove(helper);
+      helper.dispose();
+      candidateHelpers.delete(id);
+    };
+
+    const clearAllCandidates = () => {
+      for (const id of [...candidateHelpers.keys()]) removeCandidate(id);
+    };
+
+    const addCandidate = (id: string) => {
+      if (candidateHelpers.has(id)) return;
+      const obj = world.get(id)?.get(TransformComponent)?.object3d;
+      if (!obj) return;
+      const helper = new THREE.BoxHelper(obj, CANDIDATE_COLOR);
+      (helper.material as THREE.LineBasicMaterial).linewidth = 2;
+      scene.add(helper);
+      candidateHelpers.set(id, helper);
+    };
+
     // Returns the single id when size === 1, else null. Drives the tool's
     // AxisGizmoAttachment and ZoneComponent's per-selection debug visibility
     // — both still operate against at most one entity.
@@ -317,6 +348,8 @@ export function ThreeCanvas({
       onSelectRef.current(id, modifier);
     const marqueeCommitCallback = (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) =>
       onMarqueeCommitRef.current(candidates, modifier);
+    const marqueeChangeCallback = (candidates: ReadonlySet<string>) =>
+      setMarqueeCandidatesRef.current(candidates);
 
     // ── Input wiring ────────────────────────────────────────────────────
     // ToolDispatcher owns pointer events and routes left-click to the active
@@ -327,6 +360,7 @@ export function ThreeCanvas({
       moveGizmo,
       onSelect:        selectCallback,
       onMarqueeCommit: marqueeCommitCallback,
+      onMarqueeChange: marqueeChangeCallback,
     }));
     const grabTool = tools.find(t => t.id === 'grab') as GrabTool;
     const dispatcher = new ToolDispatcher({
@@ -362,6 +396,13 @@ export function ThreeCanvas({
       const solo = soloId(ids);
       ZoneComponent.selectedEntityId = solo;
       grabTool.setSelection(ids, dispatcher.getContext());
+    };
+
+    setMarqueeCandidatesRef.current = (ids) => {
+      for (const id of [...candidateHelpers.keys()]) {
+        if (!ids.has(id)) removeCandidate(id);
+      }
+      for (const id of ids) addCandidate(id);
     };
 
     setShowAllZonesRef.current = (on) => { ZoneComponent.showAllZones = on; };
@@ -436,6 +477,12 @@ export function ThreeCanvas({
       // and the resulting setSelectionRef call reconciles the helper map.
       for (const id of selectedIds) {
         if (!world.get(id)) onEntityRemovedRef.current(id);
+      }
+      // Marquee candidates: drop the helper directly when its entity
+      // disappears. There is no store for candidates — they are a tool-side
+      // set — so reconciliation happens locally here.
+      for (const id of [...candidateHelpers.keys()]) {
+        if (!world.get(id)) removeCandidate(id);
       }
     });
 
@@ -578,6 +625,7 @@ export function ThreeCanvas({
       }
 
       for (const helper of highlightHelpers.values()) helper.update();
+      for (const helper of candidateHelpers.values()) helper.update();
 
       // Drain UI-surface composition once per frame before rendering — element
       // setState / asset-resolve callbacks only flip dirty flags; nothing
@@ -616,6 +664,7 @@ export function ThreeCanvas({
       cursorTracker.clear();
       unsubscribe();
       clearAllHighlights();
+      clearAllCandidates();
       dispatcher.dispose();
       inputDispatcher.dispose();
       moveGizmo.dispose();
@@ -628,6 +677,7 @@ export function ThreeCanvas({
       freeCameraRef.current      = () => {};
       snapCameraOrbitRef.current = () => {};
       setSelectionRef.current    = () => {};
+      setMarqueeCandidatesRef.current = () => {};
       setActiveToolRef.current   = () => false;
       getActiveToolRef.current   = () => 'grab';
       renderer.dispose();
@@ -643,7 +693,7 @@ export function ThreeCanvas({
     onContextMenuRef,
     isMenuOpenRef,
     freeCameraRef,
-    onSelectRef, onMarqueeCommitRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+    onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
     setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);
