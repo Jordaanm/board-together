@@ -198,6 +198,28 @@ export class GrabTool implements Tool {
         || this.marqueeDrag !== null;
   }
 
+  // True while a carry-drag is in flight (active or still waiting for the
+  // guest hold-claim echo). The grid-layout hotkey checks this to allow
+  // mid-drag layout — other gestures (marquee, rotate, flick-aim) keep the
+  // hotkey suppressed via hasActiveGesture.
+  isDragging(): boolean {
+    return this.carry !== null;
+  }
+
+  // Re-snapshot the group-drag's offsets from the entities' current poses and
+  // immediately re-anchor at the current carry target so the rigid formation
+  // tracks the cursor without a frame of stale data. Called by the grid-
+  // layout hotkey after it rewrites member positions mid-drag. No-op when
+  // no carry is active.
+  rebuildGroupDrag(): void {
+    if (!this.carry) return;
+    this.groupController.recaptureOffsets();
+    this.carry.handle.setPosition(this.carryTarget.x, this.holdY, this.carryTarget.z);
+    this.groupController.applyAnchorTranslation(
+      this.carryTarget.x, this.holdY, this.carryTarget.z,
+    );
+  }
+
   // ── Tool lifecycle ─────────────────────────────────────────────────────
   onActivate(ctx: ToolContext): void {
     this.active = true;

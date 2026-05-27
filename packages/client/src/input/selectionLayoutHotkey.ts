@@ -68,17 +68,27 @@ export function performSelectionLayout(deps: PerformLayoutDeps): number {
 
   const ids = Array.from(selection);
 
-  // Multi-claim before computing the plan. Entities that fail to claim drop
-  // out of scope and out of the centroid/cell-size math, matching the PRD's
-  // "filter then layout" structure.
-  const claimed: EntityHandle[] = [];
+  // Multi-claim before computing the plan. Entities already held by self
+  // (mid-drag layout) pass straight through; those held by other peers are
+  // skipped; the rest go through tryHold. Only the freshly-claimed ones are
+  // released at the end so we don't tear down an in-flight drag.
+  const inScope:    EntityHandle[] = [];
+  const freshClaim: EntityHandle[] = [];
   for (const id of ids) {
     const h = world.get(id);
     if (!h) continue;
-    if (h.tryHold(selfSeat)) claimed.push(h);
+    const heldBy = h.heldBy();
+    if (heldBy === selfSeat) {
+      inScope.push(h);
+    } else if (heldBy === null) {
+      if (h.tryHold(selfSeat)) {
+        inScope.push(h);
+        freshClaim.push(h);
+      }
+    }
   }
-  if (claimed.length < 2) {
-    for (const h of claimed) h.release();
+  if (inScope.length < 2) {
+    for (const h of freshClaim) h.release();
     return 0;
   }
 
@@ -86,7 +96,7 @@ export function performSelectionLayout(deps: PerformLayoutDeps): number {
   if (history) history.push(`Arrange grid ${columns}`);
 
   const plans = resolveSelectionLayout({
-    selection: claimed.map(h => h.id),
+    selection: inScope.map(h => h.id),
     getTransform: (id) => {
       const t = world.get(id)?.get(TransformComponent);
       if (!t) return null;
@@ -119,7 +129,7 @@ export function performSelectionLayout(deps: PerformLayoutDeps): number {
     writePlan(h, plan);
   }
 
-  for (const h of claimed) h.release();
+  for (const h of freshClaim) h.release();
   return plans.length;
 }
 

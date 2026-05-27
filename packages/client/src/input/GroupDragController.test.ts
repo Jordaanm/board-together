@@ -177,4 +177,22 @@ describe('GroupDragController', () => {
     expect(c.obj.position.x).toBeCloseTo(1);
     expect(c.obj.position.z).toBeCloseTo(-1);
   });
+
+  test('recaptureOffsets reads new poses; next translation carries the new shape', () => {
+    const anchor  = new FakeHandle('A', { position: [0, 0, 0] });
+    const member1 = new FakeHandle('B', { position: [1, 0, 0] });
+    ctrl.begin(asHandle(anchor), [asHandle(member1)], 0);
+
+    // External agent (e.g. grid layout) rewrites poses directly to the
+    // entities, bypassing the controller's translation path.
+    anchor.obj.position.set(10, 0, 10);
+    member1.obj.position.set(10, 0, 12);
+
+    // Without recapture: the stale offset would put member1 at anchor+(1,0,0)
+    // on the next translation. After recapture, the offset reflects the new
+    // (0,0,2) relationship.
+    ctrl.recaptureOffsets();
+    ctrl.applyAnchorTranslation(0, 0, 0);
+    expect(member1.positions.at(-1)).toEqual([0, 0, 2]);
+  });
 });

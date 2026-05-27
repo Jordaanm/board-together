@@ -70,6 +70,23 @@ export class GroupDragController {
     return true;
   }
 
+  // Re-snapshot anchor pose + per-member offsets from the entities' current
+  // world poses, so a subsequent applyAnchorTranslation propagates the new
+  // formation rigidly. Used when an external action (e.g. the grid-layout
+  // hotkey) has just rewritten member positions mid-drag and the drag should
+  // continue carrying the new shape.
+  recaptureOffsets(): void {
+    const s = this.state;
+    if (!s) return;
+    const anchorPose = poseOf(s.anchor);
+    if (!anchorPose) return;
+    const memberPoses = s.members
+      .map(h => ({ id: h.id, pose: poseOf(h) }))
+      .filter((m): m is { id: string; pose: Pose } => m.pose !== null);
+    const offsets = captureOffsets(anchorPose, memberPoses);
+    this.state = { anchor: s.anchor, members: s.members, offsets, anchorStartPose: anchorPose };
+  }
+
   // Translation-only update — applies the new anchor world position to each
   // member, preserving the anchor's start rotation. Slice 5's drag does not
   // rotate the anchor.

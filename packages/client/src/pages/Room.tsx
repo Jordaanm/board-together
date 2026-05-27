@@ -184,6 +184,8 @@ export function Room({ roomId, isHost }: Props) {
   const getActiveToolRef   = useRef<() => string>(() => activeToolId);
   const getCameraAxesRef   = useRef<() => { forward: [number, number, number]; right: [number, number, number] } | null>(() => null);
   const hasActiveGestureRef = useRef<() => boolean>(() => false);
+  const isDraggingRef       = useRef<() => boolean>(() => false);
+  const rebuildGroupDragRef = useRef<() => void>(noop);
   const setShowAllZonesRef = useRef<(on: boolean) => void>(noop);
   const setShowSnapPointsRef = useRef<(on: boolean) => void>(noop);
   const setShowHitboxesRef = useRef<(on: boolean) => void>(noop);
@@ -565,14 +567,20 @@ export function Room({ roomId, isHost }: Props) {
   useEffect(() => {
     if (!handle) return;
     const onKey = (e: KeyboardEvent) => {
+      // Drag is an allowed in-flight gesture — pressing a digit mid-drag
+      // snaps the carried group into the requested grid and continues the
+      // drag with the new formation. Other gestures (marquee, rotate,
+      // flick-aim) keep the digit suppressed.
+      const dragging = isDraggingRef.current();
+      const gesture  = hasActiveGestureRef.current() && !dragging;
       const cols = resolveLayoutHotkey(
         { key: e.key, repeat: e.repeat, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey },
-        { textInputFocused: isTextInputFocused(), activeGesture: hasActiveGestureRef.current() },
+        { textInputFocused: isTextInputFocused(), activeGesture: gesture },
       );
       if (cols === null) return;
       const axes = getCameraAxesRef.current();
       if (!axes) return;
-      performSelectionLayout({
+      const moved = performSelectionLayout({
         world:      handle.controller,
         selection:  selectionStore.ids(),
         cameraAxes: axes,
@@ -580,6 +588,7 @@ export function Room({ roomId, isHost }: Props) {
         history:    handle.controller.history,
         columns:    cols,
       });
+      if (moved > 0 && dragging) rebuildGroupDragRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -882,6 +891,8 @@ export function Room({ roomId, isHost }: Props) {
         getActiveToolRef={getActiveToolRef}
         getCameraAxesRef={getCameraAxesRef}
         hasActiveGestureRef={hasActiveGestureRef}
+        isDraggingRef={isDraggingRef}
+        rebuildGroupDragRef={rebuildGroupDragRef}
         setShowAllZonesRef={setShowAllZonesRef}
         setShowSnapPointsRef={setShowSnapPointsRef}
         setShowHitboxesRef={setShowHitboxesRef}

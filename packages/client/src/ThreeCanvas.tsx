@@ -96,6 +96,11 @@ interface Props {
   // marquee, mid-rotate, mid-flick-aim). The layout hotkey skips its action
   // while this is true so it can't fight the gesture.
   hasActiveGestureRef?: MutableRefObject<() => boolean>;
+  // True while a carry-drag is in flight. The layout hotkey allows itself
+  // to fire mid-drag so the user can snap-arrange the carried group, then
+  // calls rebuildGroupDragRef so the drag picks up the new formation.
+  isDraggingRef?:      MutableRefObject<() => boolean>;
+  rebuildGroupDragRef?: MutableRefObject<() => void>;
   setShowAllZonesRef:  MutableRefObject<(on: boolean) => void>;
   setShowSnapPointsRef: MutableRefObject<(on: boolean) => void>;
   setShowHitboxesRef:  MutableRefObject<(on: boolean) => void>;
@@ -125,6 +130,8 @@ export function ThreeCanvas({
   onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
   getCameraAxesRef,
   hasActiveGestureRef,
+  isDraggingRef,
+  rebuildGroupDragRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
   setShowHitboxesRef,
@@ -412,6 +419,12 @@ export function ThreeCanvas({
     }
     if (hasActiveGestureRef) {
       hasActiveGestureRef.current = () => dispatcher.getActive()?.hasActiveGesture() ?? false;
+    }
+    if (isDraggingRef) {
+      isDraggingRef.current = () => grabTool.isDragging();
+    }
+    if (rebuildGroupDragRef) {
+      rebuildGroupDragRef.current = () => grabTool.rebuildGroupDrag();
     }
 
     setSelectionRef.current = (ids) => {
@@ -710,6 +723,8 @@ export function ThreeCanvas({
       getActiveToolRef.current   = () => 'grab';
       if (getCameraAxesRef)    getCameraAxesRef.current    = () => null;
       if (hasActiveGestureRef) hasActiveGestureRef.current = () => false;
+      if (isDraggingRef)       isDraggingRef.current       = () => false;
+      if (rebuildGroupDragRef) rebuildGroupDragRef.current = () => {};
       renderer.dispose();
       container.removeChild(renderer.domElement);
       ZoneComponent.selectedEntityId = null;
@@ -724,7 +739,7 @@ export function ThreeCanvas({
     isMenuOpenRef,
     freeCameraRef,
     onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
-    getCameraAxesRef, hasActiveGestureRef,
+    getCameraAxesRef, hasActiveGestureRef, isDraggingRef, rebuildGroupDragRef,
     setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);
