@@ -25,6 +25,7 @@ import { resolveDragTarget } from '../DragTargetResolver';
 import { MeshComponent } from '../../entity/components/MeshComponent';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
 import { type SelectionClickModifier } from '../SelectionStore';
+import { GroupDragController } from '../GroupDragController';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
 import { type DropPreviewGhost } from './DropPreviewGhost';
@@ -114,7 +115,12 @@ export class GrabTool implements Tool {
   private readonly velHistory:  { pos: THREE.Vector3; t: number }[] = [];
 
   private active           = false;
+  // Last solo selection (size === 1). Drives gizmo attachment + ZoneComponent
+  // debug visibility — unchanged from single-select behavior.
   private selectedEntityId: string | null = null;
+  // Full multi-selection set. Drives group-drag eligibility in beginCarry.
+  private selectedIds:      ReadonlySet<string> = new Set();
+  private readonly groupController = new GroupDragController();
 
   constructor(
     private readonly gizmo:             MoveGizmo,
@@ -135,9 +141,13 @@ export class GrabTool implements Tool {
   }
 
   // ── Public API for ThreeCanvas ─────────────────────────────────────────
-  setSelection(id: string | null, ctx: ToolContext): void {
-    if (this.selectedEntityId === id) return;
-    this.selectedEntityId = id;
+  setSelection(ids: ReadonlySet<string>, ctx: ToolContext): void {
+    this.selectedIds = ids;
+    // Gizmo attaches only on solo selection — multi-select hides the per-
+    // entity gizmo so it doesn't conflict with the future centroid gizmo.
+    const solo = ids.size === 1 ? (ids.values().next().value ?? null) : null;
+    if (this.selectedEntityId === solo) return;
+    this.selectedEntityId = solo;
     if (this.active) this.syncAttachment(ctx);
   }
 
@@ -291,30 +301,43 @@ export class GrabTool implements Tool {
     if (this.carry) {
       const handle = this.carry.handle;
       const wasActive = this.carry.active;
+      const group = this.groupController.current();
+      const hasGroupMembers = (group?.members.length ?? 0) > 0;
+      // Peel-transitioned carry bypasses the controller (the new card was
+      // claimed inside World.peelAndHold, not via GroupDragController.begin).
+      // Route release through the controller only when it's actually
+      // managing this carry.
+      const releaseAll = (velocity?: { vx: number; vy: number; vz: number }) => {
+        if (group) this.groupController.release(velocity);
+        else       handle.release(velocity);
+      };
       this.carry = null;
       this.dropPreviewGhost.detach();
       if (wasActive) {
-        // Drop target under the cursor wins over throw velocity. Releases
-        // the hold (no throw) and tweens the entity into the destination
-        // hand — zone-enter then runs HandComponent's slot logic.
-        const drop = findDropTargetAt(e.clientX, e.clientY);
-        if (drop?.kind === 'hand-panel') {
-          handle.release();
-          ctx.world.tweenIntoHand(handle.entity, drop.handEntityId);
-          this.velHistory.length = 0;
-          return;
+        // Drop target under the cursor wins over throw velocity, but only
+        // for single-entity drag. A group drop into a hand panel is
+        // ambiguous (which entity becomes the hand tile?) so the group
+        // path falls through to the regular throw / drop release.
+        if (!hasGroupMembers) {
+          const drop = findDropTargetAt(e.clientX, e.clientY);
+          if (drop?.kind === 'hand-panel') {
+            releaseAll();
+            ctx.world.tweenIntoHand(handle.entity, drop.handEntityId);
+            this.velHistory.length = 0;
+            return;
+          }
         }
         const vel = this.computeThrowVelocity(e.timestamp);
         if (vel.length() >= THROW_VELOCITY_THRESHOLD) {
-          handle.release({ vx: vel.x, vy: 0, vz: vel.z });
+          releaseAll({ vx: vel.x, vy: 0, vz: vel.z });
         } else {
           // Slow release: no throw. Body returns to DYNAMIC (via HoldService)
           // and gravity drops the entity from its hover Y.
-          handle.release();
+          releaseAll();
         }
       } else {
         // Hold-claim never confirmed — defensive release (idempotent on host).
-        handle.release();
+        releaseAll();
       }
       this.velHistory.length = 0;
       return;
@@ -391,6 +414,11 @@ export class GrabTool implements Tool {
       const k = 1 - Math.exp(-_dt / Y_LERP_TIME_CONSTANT_S);
       this.holdY += (this.targetY - this.holdY) * k;
       this.carry.handle.setPosition(this.carryTarget.x, this.holdY, this.carryTarget.z);
+      // Group drag: drive each claimed member off the anchor's new world
+      // position. No-op when `members` is empty (single-entity drag).
+      this.groupController.applyAnchorTranslation(
+        this.carryTarget.x, this.holdY, this.carryTarget.z,
+      );
       // Ghost hidden while the cursor is moving fast enough that release
       // would throw — only useful as a placement hint during slow drags.
       const ghostY = this.cursorSpeed < THROW_VELOCITY_THRESHOLD ? this.currentSurfaceY : null;
@@ -430,7 +458,11 @@ export class GrabTool implements Tool {
 
   private cancelGesture(ctx: ToolContext): void {
     if (this.carry) {
-      this.carry.handle.release();
+      // Same peel-vs-group branch as onRelease: peel-transitioned carry
+      // releases directly via the handle (the controller isn't aware of
+      // it); a true group drag goes through the controller.
+      if (this.groupController.current()) this.groupController.release();
+      else                                this.carry.handle.release();
       this.carry = null;
     }
     if (this.axisDrag) {
@@ -504,7 +536,20 @@ export class GrabTool implements Tool {
     }
 
     if (p.handle.entity.heldBy !== null) return;
-    if (!p.handle.tryHold(seat)) return;
+
+    // Group-drag eligibility: the anchor must be a member of the current
+    // multi-selection. If the anchor isn't selected, this is a regular
+    // single-entity drag (members = []) and the controller behaves as a
+    // thin wrapper around the existing hold-claim path.
+    const others: EntityHandle[] = [];
+    if (this.selectedIds.size > 1 && this.selectedIds.has(p.handle.id)) {
+      for (const id of this.selectedIds) {
+        if (id === p.handle.id) continue;
+        const h = ctx.world.get(id);
+        if (h) others.push(h);
+      }
+    }
+    if (!this.groupController.begin(p.handle, others, seat)) return;
 
     this.carry = { handle: p.handle, active: false };
     this.velHistory.length = 0;

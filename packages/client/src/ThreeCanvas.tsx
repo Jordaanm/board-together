@@ -351,7 +351,7 @@ export function ThreeCanvas({
       for (const id of ids) addHighlight(id);
       const solo = soloId(ids);
       ZoneComponent.selectedEntityId = solo;
-      grabTool.setSelection(solo, dispatcher.getContext());
+      grabTool.setSelection(ids, dispatcher.getContext());
     };
 
     setShowAllZonesRef.current = (on) => { ZoneComponent.showAllZones = on; };
