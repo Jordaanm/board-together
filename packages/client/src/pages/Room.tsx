@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ThreeCanvas, type ReplicationTarget, type HandView } from '../ThreeCanvas';
 import { ConnectionManager } from '../net/ConnectionManager';
@@ -27,6 +27,7 @@ import { type ContextMenuRequest, dispatchMenuAction } from '../input/ContextMen
 import { type MenuItem } from '../entity/EntityComponent';
 import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
+import { SelectionStore } from '../input/SelectionStore';
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
@@ -77,7 +78,21 @@ const noop = () => {};
 export function Room({ roomId, isHost }: Props) {
   const [status,       setStatus]       = useState<Status>('connecting');
   const [contextMenu,  setContextMenu]  = useState<ContextMenuRequest | null>(null);
-  const [selectedId,   setSelectedId]   = useState<string | null>(null);
+  // SelectionStore is the canonical multi-id state; React mirror lives in
+  // `selectedIds`. Single-id consumers (panels, gizmo wiring) derive the
+  // solo id from size === 1.
+  const selectionStore = useMemo(() => new SelectionStore(), []);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => selectionStore.subscribe(() => {
+    setSelectedIds(new Set(selectionStore.ids()));
+  }), [selectionStore]);
+  const selectedId: string | null = selectedIds.size === 1
+    ? selectedIds.values().next().value ?? null
+    : null;
+  const setSelectedId = (id: string | null) => {
+    if (id === null) selectionStore.clear();
+    else selectionStore.replace(id);
+  };
   const [isFreeCamera, setIsFreeCamera] = useState(false);
   const [roomSnapshot, setRoomSnapshot] = useState<RoomStateSnapshot | null>(null);
   const [selfPeerId,   setSelfPeerId]   = useState<string | null>(null);
@@ -159,7 +174,8 @@ export function Room({ roomId, isHost }: Props) {
   const isMenuOpenRef      = useRef<() => boolean>(() => false);
   const freeCameraRef      = useRef<(on: boolean) => void>(noop);
   const onSelectRef        = useRef<(id: string | null) => void>(noop);
-  const setHighlightRef    = useRef<(id: string | null) => void>(noop);
+  const setSelectionRef    = useRef<(ids: ReadonlySet<string>) => void>(noop);
+  const onEntityRemovedRef = useRef<(id: string) => void>(noop);
   const setActiveToolRef   = useRef<(toolId: string) => boolean>(() => false);
   const getActiveToolRef   = useRef<() => string>(() => activeToolId);
   const setShowAllZonesRef = useRef<(on: boolean) => void>(noop);
@@ -509,15 +525,18 @@ export function Room({ roomId, isHost }: Props) {
     });
   }, [roomSnapshot, roomName, isSignedIn, discordPresenceEnabled]);
 
-  // Clear selection if the selected object is removed
+  // Wire canvas-side auto-remove to the store. The canvas detects when an
+  // id in the live selection no longer maps to a world entity and reports
+  // it here; the store fires its subscribers and the BoxHelper map drops
+  // the helper on the next setSelectionRef call.
   useEffect(() => {
-    if (selectedId && !objects.some(o => o.id === selectedId)) setSelectedId(null);
-  }, [objects, selectedId]);
+    onEntityRemovedRef.current = (id: string) => selectionStore.remove(id);
+  }, [selectionStore]);
 
-  // Drive the canvas's highlight helper from React selection state
+  // Drive the canvas's highlight helpers from store state.
   useEffect(() => {
-    setHighlightRef.current(selectedId);
-  }, [selectedId]);
+    setSelectionRef.current(selectedIds);
+  }, [selectedIds]);
 
   // Bundled-asset stack — both roles share an in-memory BundleStore (the
   // hot-path lookup for the AssetService bundled branch) and a persistent
@@ -746,7 +765,8 @@ export function Room({ roomId, isHost }: Props) {
         isMenuOpenRef={isMenuOpenRef}
         freeCameraRef={freeCameraRef}
         onSelectRef={onSelectRef}
-        setHighlightRef={setHighlightRef}
+        setSelectionRef={setSelectionRef}
+        onEntityRemovedRef={onEntityRemovedRef}
         setActiveToolRef={setActiveToolRef}
         getActiveToolRef={getActiveToolRef}
         setShowAllZonesRef={setShowAllZonesRef}

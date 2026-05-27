@@ -71,7 +71,12 @@ interface Props {
   isMenuOpenRef:       MutableRefObject<() => boolean>;
   freeCameraRef:       MutableRefObject<(on: boolean) => void>;
   onSelectRef:         MutableRefObject<(id: string | null) => void>;
-  setHighlightRef:     MutableRefObject<(id: string | null) => void>;
+  setSelectionRef:     MutableRefObject<(ids: ReadonlySet<string>) => void>;
+  // Canvas → Room callback fired when an entity in the current selection
+  // is removed from the world. Room responds by dropping the id from the
+  // SelectionStore. Replaces the per-selection "is selected entity gone"
+  // effect that lived in Room.
+  onEntityRemovedRef:  MutableRefObject<(id: string) => void>;
   setActiveToolRef:    MutableRefObject<(toolId: string) => boolean>;
   getActiveToolRef:    MutableRefObject<() => string>;
   setShowAllZonesRef:  MutableRefObject<(on: boolean) => void>;
@@ -100,7 +105,7 @@ export function ThreeCanvas({
   onContextMenuRef,
   isMenuOpenRef,
   freeCameraRef,
-  onSelectRef, setHighlightRef, setActiveToolRef, getActiveToolRef,
+  onSelectRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
   setShowHitboxesRef,
@@ -263,19 +268,44 @@ export function ThreeCanvas({
     const unsubscribeSnd = world.onPlaySound((msg) => soundPlayer.playSlug(msg.slug));
 
     // ── Selection highlight ─────────────────────────────────────────────
-    // BoxHelper is tool-independent and renders directly from selection state.
-    // The MoveGizmo overlay is owned by GrabTool's AxisGizmoAttachment, which
-    // attaches/detaches as selection changes while the tool is active.
-    let highlightHelper: THREE.BoxHelper | null = null;
-    let highlightId:     string | null = null;
-    const moveGizmo     = new MoveGizmo();
+    // BoxHelpers are tool-independent and render directly from selection
+    // state. The MoveGizmo overlay is owned by GrabTool's AxisGizmoAttachment,
+    // which attaches/detaches as selection changes while the tool is active.
+    // Map<id, BoxHelper> is reconciled when setSelectionRef is called and
+    // each entry's `update()` runs per frame.
+    const highlightHelpers = new Map<string, THREE.BoxHelper>();
+    let   selectedIds: ReadonlySet<string> = new Set();
+    const moveGizmo    = new MoveGizmo();
 
-    const clearHighlightBox = () => {
-      if (highlightHelper) {
-        scene.remove(highlightHelper);
-        highlightHelper.dispose();
-        highlightHelper = null;
-      }
+    const removeHighlight = (id: string) => {
+      const helper = highlightHelpers.get(id);
+      if (!helper) return;
+      scene.remove(helper);
+      helper.dispose();
+      highlightHelpers.delete(id);
+    };
+
+    const clearAllHighlights = () => {
+      for (const id of [...highlightHelpers.keys()]) removeHighlight(id);
+    };
+
+    const addHighlight = (id: string) => {
+      if (highlightHelpers.has(id)) return;
+      const obj = world.get(id)?.get(TransformComponent)?.object3d;
+      if (!obj) return;
+      const helper = new THREE.BoxHelper(obj, 0xffd740);
+      (helper.material as THREE.LineBasicMaterial).linewidth = 2;
+      scene.add(helper);
+      highlightHelpers.set(id, helper);
+    };
+
+    // Returns the single id when size === 1, else null. Drives the tool's
+    // AxisGizmoAttachment and ZoneComponent's per-selection debug visibility
+    // — both still operate against at most one entity.
+    const soloId = (ids: ReadonlySet<string>): string | null => {
+      if (ids.size !== 1) return null;
+      for (const id of ids) return id;
+      return null;
     };
 
     const selectCallback = (id: string | null) => onSelectRef.current(id);
@@ -310,20 +340,16 @@ export function ThreeCanvas({
       return dispatcher.setActiveTool(tool);
     };
 
-    setHighlightRef.current = (id) => {
-      if (highlightId === id) return;
-      highlightId = id;
-      ZoneComponent.selectedEntityId = id;
-      clearHighlightBox();
-      if (id) {
-        const obj = world.get(id)?.get(TransformComponent)?.object3d;
-        if (obj) {
-          highlightHelper = new THREE.BoxHelper(obj, 0xffd740);
-          (highlightHelper.material as THREE.LineBasicMaterial).linewidth = 2;
-          scene.add(highlightHelper);
-        }
+    setSelectionRef.current = (ids) => {
+      selectedIds = ids;
+      // Reconcile: drop helpers no longer in the set, add helpers for new ids.
+      for (const id of [...highlightHelpers.keys()]) {
+        if (!ids.has(id)) removeHighlight(id);
       }
-      grabTool.setSelection(id, dispatcher.getContext());
+      for (const id of ids) addHighlight(id);
+      const solo = soloId(ids);
+      ZoneComponent.selectedEntityId = solo;
+      grabTool.setSelection(solo, dispatcher.getContext());
     };
 
     setShowAllZonesRef.current = (on) => { ZoneComponent.showAllZones = on; };
@@ -393,10 +419,11 @@ export function ThreeCanvas({
     onSceneReady?.(handle);
 
     const unsubscribe = world.subscribe(() => {
-      if (highlightId && !world.get(highlightId)) {
-        highlightId = null;
-        clearHighlightBox();
-        grabTool.setSelection(null, dispatcher.getContext());
+      // Any selected id whose entity has been removed from the world bubbles
+      // back up to Room via onEntityRemovedRef; Room drops it from the store
+      // and the resulting setSelectionRef call reconciles the helper map.
+      for (const id of selectedIds) {
+        if (!world.get(id)) onEntityRemovedRef.current(id);
       }
     });
 
@@ -479,11 +506,12 @@ export function ThreeCanvas({
       const hoveredId = inputDispatcher.getHoveredId();
       const hovered   = hoveredId ? world.get(hoveredId)?.entity ?? null : null;
       hoverTooltip.update(hovered, pointerClient);
+      const soloSelected = soloId(selectedIds);
       pdfButtons.update({
         camera,
         canvas:         renderer.domElement,
         hoveredEntity:  hovered,
-        selectedEntity: highlightId ? world.get(highlightId)?.entity ?? null : null,
+        selectedEntity: soloSelected ? world.get(soloSelected)?.entity ?? null : null,
       });
 
       // ── Cursor: throttled send + render sync ───────────────────────────
@@ -513,14 +541,14 @@ export function ThreeCanvas({
       const tableHandle = world.get(TABLE_ENTITY_ID);
       const tableSeats  = tableHandle?.entity.getComponent(TableComponent)?.state.seats;
       const snap        = getRoomSnapshotRef.current();
-      const requestedEditingSeat = highlightId === TABLE_ENTITY_ID
+      const requestedEditingSeat = soloSelected === TABLE_ENTITY_ID
         ? getEditingSeatIndexRef.current()
         : null;
       seatGizmo.setEditingSeat(requestedEditingSeat);
       seatGizmo.update();
       seatOverlay.sync({
         seats:           tableSeats,
-        selected:        highlightId === TABLE_ENTITY_ID,
+        selected:        soloSelected === TABLE_ENTITY_ID,
         names:           resolveSeatNames(snap),
         hiddenSeatIndex: seatGizmo.getEditingSeat(),
       });
@@ -537,7 +565,7 @@ export function ThreeCanvas({
         setHandViewRef.current(view);
       }
 
-      if (highlightHelper) highlightHelper.update();
+      for (const helper of highlightHelpers.values()) helper.update();
 
       // Drain UI-surface composition once per frame before rendering — element
       // setState / asset-resolve callbacks only flip dirty flags; nothing
@@ -575,7 +603,7 @@ export function ThreeCanvas({
       cursorOverlay.dispose();
       cursorTracker.clear();
       unsubscribe();
-      clearHighlightBox();
+      clearAllHighlights();
       dispatcher.dispose();
       inputDispatcher.dispose();
       moveGizmo.dispose();
@@ -587,7 +615,7 @@ export function ThreeCanvas({
       onPeerJoinedRef.current = () => {};
       freeCameraRef.current      = () => {};
       snapCameraOrbitRef.current = () => {};
-      setHighlightRef.current    = () => {};
+      setSelectionRef.current    = () => {};
       setActiveToolRef.current   = () => false;
       getActiveToolRef.current   = () => 'grab';
       renderer.dispose();
@@ -603,7 +631,7 @@ export function ThreeCanvas({
     onContextMenuRef,
     isMenuOpenRef,
     freeCameraRef,
-    onSelectRef, setHighlightRef, setActiveToolRef, getActiveToolRef,
+    onSelectRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
     setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);
