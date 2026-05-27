@@ -108,7 +108,7 @@ export function Room({ roomId, isHost }: Props) {
   const location = useLocation();
   const joinPassword: string | null = (location.state as { password?: string } | null)?.password ?? null;
   const { profile, isSignedIn } = useDiscordAuth();
-  const { discordPresenceEnabled, showFps } = usePreferences();
+  const { discordPresenceEnabled, showFps, gridAlignment } = usePreferences();
   const [handView, setHandView]         = useState<HandView | null>(null);
   const [lastLoaded, setLastLoaded]     = useState<LastLoaded | null>(null);
   const [historyService, setHistoryService] = useState<SceneHistoryService | null>(null);
@@ -186,6 +186,8 @@ export function Room({ roomId, isHost }: Props) {
   const hasActiveGestureRef = useRef<() => boolean>(() => false);
   const isDraggingRef       = useRef<() => boolean>(() => false);
   const rebuildGroupDragRef = useRef<() => void>(noop);
+  const gridAlignmentRef    = useRef(gridAlignment);
+  gridAlignmentRef.current  = gridAlignment;
   const setShowAllZonesRef = useRef<(on: boolean) => void>(noop);
   const setShowSnapPointsRef = useRef<(on: boolean) => void>(noop);
   const setShowHitboxesRef = useRef<(on: boolean) => void>(noop);
@@ -578,7 +580,13 @@ export function Room({ roomId, isHost }: Props) {
         { textInputFocused: isTextInputFocused(), activeGesture: gesture },
       );
       if (cols === null) return;
-      const axes = getCameraAxesRef.current();
+      // 'table' alignment overrides camera axes with world XZ so the grid
+      // orientation does not yaw with the camera. Sort + cell positions
+      // both follow these axes, so the layout reads identically from any
+      // seat.
+      const axes = gridAlignmentRef.current === 'table'
+        ? { forward: [0, 0, -1] as [number, number, number], right: [1, 0, 0] as [number, number, number] }
+        : getCameraAxesRef.current();
       if (!axes) return;
       const moved = performSelectionLayout({
         world:      handle.controller,

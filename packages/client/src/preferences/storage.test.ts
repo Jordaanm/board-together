@@ -58,6 +58,7 @@ describe('preferences storage', () => {
       hotkeys: { ...DEFAULT_HOTKEYS },
       discordPresenceEnabled: true,
       showFps: false,
+      gridAlignment: 'camera',
     };
     save(prefs);
     expect(load()).toEqual(prefs);
@@ -86,6 +87,7 @@ describe('preferences storage', () => {
       },
       discordPresenceEnabled: true,
       showFps: false,
+      gridAlignment: 'table',
     };
     save(prefs);
     expect(load()).toEqual(prefs);
@@ -112,6 +114,22 @@ describe('preferences storage', () => {
     });
   });
 
+  test('load() falls back to default gridAlignment for an invalid value', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1, darkMode: 'dark', rotateAmount: 45,
+      gridAlignment: 'lunar',
+    }));
+    expect(load().gridAlignment).toBe(DEFAULT_PREFERENCES.gridAlignment);
+  });
+
+  test('load() preserves a stored gridAlignment of "table"', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1, darkMode: 'dark', rotateAmount: 45,
+      gridAlignment: 'table',
+    }));
+    expect(load().gridAlignment).toBe('table');
+  });
+
   test('load() swallows localStorage.getItem throw', () => {
     const orig = Storage.prototype.getItem;
     Storage.prototype.getItem = function () { throw new Error('boom'); };
@@ -132,6 +150,7 @@ describe('preferences storage', () => {
         hotkeys: { ...DEFAULT_HOTKEYS },
         discordPresenceEnabled: true,
         showFps: false,
+        gridAlignment: 'camera',
       })).not.toThrow();
       expect(warnSpy).toHaveBeenCalled();
     } finally {

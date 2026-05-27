@@ -3,9 +3,11 @@ import {
   DARK_MODE_VALUES,
   DEFAULT_HOTKEYS,
   DEFAULT_PREFERENCES,
+  GRID_ALIGNMENT_VALUES,
   ROTATE_AMOUNT_VALUES,
   type ActionName,
   type DarkMode,
+  type GridAlignment,
   type HotkeyMap,
   type Preferences,
   type RotateAmount,
@@ -28,6 +30,10 @@ function isDarkMode(v: unknown): v is DarkMode {
 
 function isRotateAmount(v: unknown): v is RotateAmount {
   return typeof v === 'number' && (ROTATE_AMOUNT_VALUES as readonly number[]).includes(v);
+}
+
+function isGridAlignment(v: unknown): v is GridAlignment {
+  return typeof v === 'string' && (GRID_ALIGNMENT_VALUES as readonly string[]).includes(v);
 }
 
 // Per-key sanitiser. Accepts an empty string ("unbound") or a single
@@ -81,6 +87,9 @@ export function load(): Preferences {
     showFps: typeof obj.showFps === 'boolean'
       ? obj.showFps
       : DEFAULT_PREFERENCES.showFps,
+    gridAlignment: isGridAlignment(obj.gridAlignment)
+      ? obj.gridAlignment
+      : DEFAULT_PREFERENCES.gridAlignment,
   };
 }
 

@@ -93,6 +93,7 @@ describe('PreferencesProvider / usePreferences', () => {
       hotkeys: { ...DEFAULT_HOTKEYS },
       discordPresenceEnabled: true,
       showFps: false,
+      gridAlignment: 'camera',
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     const probe: Probe = { current: null };
@@ -160,6 +161,15 @@ describe('PreferencesProvider / usePreferences', () => {
     expect(probe.current?.darkMode).toBe(DEFAULT_PREFERENCES.darkMode);
     expect(probe.current?.rotateAmount).toBe(DEFAULT_PREFERENCES.rotateAmount);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(DEFAULT_PREFERENCES);
+  });
+
+  test('setGridAlignment mutates state and persists', () => {
+    const probe: Probe = { current: null };
+    mount(probe);
+    expect(probe.current?.gridAlignment).toBe(DEFAULT_PREFERENCES.gridAlignment);
+    act(() => { probe.current!.setGridAlignment('table'); });
+    expect(probe.current?.gridAlignment).toBe('table');
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ gridAlignment: 'table' });
   });
 
   test('resolvedTheme follows media-query when darkMode === "system"', () => {

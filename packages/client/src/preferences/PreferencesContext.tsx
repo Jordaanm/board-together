@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { load, save } from './storage';
-import { DEFAULT_HOTKEYS, DEFAULT_PREFERENCES, type ActionName, type DarkMode, type HotkeyMap, type Preferences, type RotateAmount } from './types';
+import { DEFAULT_HOTKEYS, DEFAULT_PREFERENCES, type ActionName, type DarkMode, type GridAlignment, type HotkeyMap, type Preferences, type RotateAmount } from './types';
 
 export interface PreferencesContextValue {
   darkMode:               DarkMode;
@@ -9,6 +9,7 @@ export interface PreferencesContextValue {
   resolvedTheme:          'light' | 'dark';
   discordPresenceEnabled: boolean;
   showFps:                boolean;
+  gridAlignment:          GridAlignment;
   setDarkMode:            (mode: DarkMode) => void;
   setRotateAmount:        (amount: RotateAmount) => void;
   // `key` is a lower-case single char, or `''` to unbind. Any conflicting
@@ -16,6 +17,7 @@ export interface PreferencesContextValue {
   setHotkey:              (action: ActionName, key: string) => void;
   setDiscordPresenceEnabled: (on: boolean) => void;
   setShowFps:             (on: boolean) => void;
+  setGridAlignment:       (alignment: GridAlignment) => void;
   reset:                  () => void;
 }
 
@@ -97,6 +99,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setGridAlignment = useCallback((gridAlignment: GridAlignment) => {
+    setPrefs(prev => {
+      const next = { ...prev, gridAlignment };
+      save(next);
+      return next;
+    });
+  }, []);
+
   const reset = useCallback(() => {
     const next: Preferences = { ...DEFAULT_PREFERENCES, hotkeys: { ...DEFAULT_HOTKEYS } };
     save(next);
@@ -110,13 +120,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     resolvedTheme:          deriveResolvedTheme(prefs.darkMode, systemTheme),
     discordPresenceEnabled: prefs.discordPresenceEnabled,
     showFps:                prefs.showFps,
+    gridAlignment:          prefs.gridAlignment,
     setDarkMode,
     setRotateAmount,
     setHotkey,
     setDiscordPresenceEnabled,
     setShowFps,
+    setGridAlignment,
     reset,
-  }), [prefs.darkMode, prefs.rotateAmount, prefs.hotkeys, prefs.discordPresenceEnabled, prefs.showFps, systemTheme, setDarkMode, setRotateAmount, setHotkey, setDiscordPresenceEnabled, setShowFps, reset]);
+  }), [prefs.darkMode, prefs.rotateAmount, prefs.hotkeys, prefs.discordPresenceEnabled, prefs.showFps, prefs.gridAlignment, systemTheme, setDarkMode, setRotateAmount, setHotkey, setDiscordPresenceEnabled, setShowFps, setGridAlignment, reset]);
 
   return (
     <PreferencesContext.Provider value={value}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { usePreferences } from '../preferences/usePreferences';
-import { ACTION_LABELS, ACTION_NAMES, ROTATE_AMOUNT_VALUES, type ActionName, type DarkMode, type RotateAmount } from '../preferences/types';
+import { ACTION_LABELS, ACTION_NAMES, ROTATE_AMOUNT_VALUES, type ActionName, type DarkMode, type GridAlignment, type RotateAmount } from '../preferences/types';
 import { useDiscordAuth } from '../discord/DiscordAuthProvider';
 import { useAnchorTarget } from './AnchorLayout';
 
@@ -126,6 +126,11 @@ const DARK_MODE_OPTIONS: { value: DarkMode; label: string }[] = [
   { value: 'dark',   label: 'Dark' },
 ];
 
+const GRID_ALIGNMENT_OPTIONS: { value: GridAlignment; label: string }[] = [
+  { value: 'camera', label: 'Camera' },
+  { value: 'table',  label: 'Table' },
+];
+
 const CHIP_ROW: React.CSSProperties = {
   display: 'flex',
   gap:     6,
@@ -231,6 +236,7 @@ export function PreferencesModal({ open, onOpenChange }: Props) {
     darkMode, setDarkMode, rotateAmount, setRotateAmount, hotkeys, setHotkey, reset,
     discordPresenceEnabled, setDiscordPresenceEnabled,
     showFps, setShowFps,
+    gridAlignment, setGridAlignment,
   } = usePreferences();
   const { isSignedIn } = useDiscordAuth();
   const [hotkeysOpen, setHotkeysOpen] = useState(false);
@@ -319,6 +325,24 @@ export function PreferencesModal({ open, onOpenChange }: Props) {
                   onChange={(e) => setShowFps(e.target.checked)}
                 />
               </label>
+            </div>
+
+            <div>
+              <div style={FIELD_LABEL}>Grid Alignment</div>
+              <div style={SEG_GROUP} role="radiogroup" aria-label="Grid Alignment">
+                {GRID_ALIGNMENT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={gridAlignment === opt.value}
+                    style={segButton(gridAlignment === opt.value)}
+                    onClick={() => setGridAlignment(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {isSignedIn && (
