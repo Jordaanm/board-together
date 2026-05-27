@@ -31,6 +31,9 @@ import { type Pose } from '../GroupTransform';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
 import { type DropPreviewGhost } from './DropPreviewGhost';
+import { type MarqueeOverlay } from './MarqueeOverlay';
+import { entitiesInMarquee, ndcRectFromScreen, type CandidateInput } from '../marqueeProjection';
+import { TABLE_ENTITY_ID } from '../../entity/tableEntity';
 import { findDropTargetAt } from '../dropTargetRegistry';
 import { type PeelAndHoldResult } from '../../entity/wire';
 import { type SeatIndex } from '../../seats/SeatLayout';
@@ -58,6 +61,17 @@ type AxisDrag = {
 type CarryDrag = {
   handle: EntityHandle;
   active: boolean;     // false while waiting for guest hold-claim echo
+};
+
+// Slice #2 of issues--marquee.md — empty-press drag that draws a screen-space
+// rectangle and selects every eligible entity inside it on release. Modifier
+// is captured at press time and applied to `applySelectionMarquee` once at
+// release, mirroring the click-matrix lift from `applySelectionClick`.
+type MarqueeDrag = {
+  startClientX: number;
+  startClientY: number;
+  modifier:     SelectionClickModifier;
+  candidates:   Set<string>;
 };
 
 // Slice #6 — rotation drag of a multi-selection around the centroid gizmo.
@@ -95,11 +109,12 @@ export class GrabTool implements Tool {
   readonly hotkey = '1';
 
   private pending:      Pending | null = null;
-  private pendingEmpty: { pointerId: number; modifier: SelectionClickModifier } | null = null;
+  private pendingEmpty: { pointerId: number; modifier: SelectionClickModifier; startX: number; startY: number } | null = null;
   private pendingPeel:  PendingPeel | null = null;
   private carry:        CarryDrag | null = null;
   private axisDrag:     AxisDrag  | null = null;
   private rotateDrag:   RotateDrag | null = null;
+  private marqueeDrag:  MarqueeDrag | null = null;
 
   // Current rendered Y of the held entity. Eases toward `targetY` with a
   // ~Y_LERP_TIME_CONSTANT_S time constant in update().
@@ -142,7 +157,9 @@ export class GrabTool implements Tool {
     private readonly attachment:        AxisGizmoAttachment,
     private readonly hitboxAttachment:  HitboxAttachment,
     private readonly dropPreviewGhost:  DropPreviewGhost,
+    private readonly marqueeOverlay:    MarqueeOverlay,
     private readonly onSelect:          (id: string | null, modifier: SelectionClickModifier) => void,
+    private readonly onMarqueeCommit:   (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void,
   ) {}
 
   // Exposed for the host-side toggle. ThreeCanvas calls this when the
@@ -172,7 +189,8 @@ export class GrabTool implements Tool {
         || this.pendingPeel !== null
         || this.carry !== null
         || this.axisDrag !== null
-        || this.rotateDrag !== null;
+        || this.rotateDrag !== null
+        || this.marqueeDrag !== null;
   }
 
   // ── Tool lifecycle ─────────────────────────────────────────────────────
@@ -198,7 +216,7 @@ export class GrabTool implements Tool {
   // ── Pointer hooks ──────────────────────────────────────────────────────
   onPress(e: ToolPointerEvent, ctx: ToolContext): void {
     if (e.button !== 0) return;
-    if (this.carry || this.axisDrag || this.rotateDrag || this.pending || this.pendingEmpty || this.pendingPeel) return;
+    if (this.carry || this.axisDrag || this.rotateDrag || this.marqueeDrag || this.pending || this.pendingEmpty || this.pendingPeel) return;
 
     const modifier: SelectionClickModifier =
         e.shiftKey ? 'shift'
@@ -244,7 +262,7 @@ export class GrabTool implements Tool {
     const hits = ctx.raycaster.intersectObjects(meshes, true);
 
     if (hits.length === 0) {
-      this.pendingEmpty = { pointerId: e.pointerId, modifier };
+      this.pendingEmpty = { pointerId: e.pointerId, modifier, startX: e.clientX, startY: e.clientY };
       ctx.element.setPointerCapture(e.pointerId);
       return;
     }
@@ -256,7 +274,7 @@ export class GrabTool implements Tool {
     // through to pendingEmpty (instead of returning a no-op) means a
     // short-press release still clears any prior selection.
     if (handle.entity.hasComponent(TableComponent)) {
-      this.pendingEmpty = { pointerId: e.pointerId, modifier };
+      this.pendingEmpty = { pointerId: e.pointerId, modifier, startX: e.clientX, startY: e.clientY };
       ctx.element.setPointerCapture(e.pointerId);
       return;
     }
@@ -294,6 +312,20 @@ export class GrabTool implements Tool {
         a.origin.y + a.axis.y * delta,
         a.origin.z + a.axis.z * delta,
       );
+      return;
+    }
+
+    if (this.marqueeDrag) {
+      this.updateMarquee(e, ctx);
+      return;
+    }
+
+    if (this.pendingEmpty) {
+      const dx = e.clientX - this.pendingEmpty.startX;
+      const dy = e.clientY - this.pendingEmpty.startY;
+      if (dx * dx + dy * dy > GRAB_MOVE_THRESHOLD_PX * GRAB_MOVE_THRESHOLD_PX) {
+        this.beginMarquee(e, ctx);
+      }
       return;
     }
 
@@ -335,6 +367,14 @@ export class GrabTool implements Tool {
       this.rotateDrag = null;
       this.groupController.release();
       this.attachment.update(0);
+      return;
+    }
+
+    if (this.marqueeDrag) {
+      const { candidates, modifier } = this.marqueeDrag;
+      this.marqueeDrag = null;
+      this.marqueeOverlay.detach();
+      this.onMarqueeCommit(candidates, modifier);
       return;
     }
 
@@ -538,6 +578,10 @@ export class GrabTool implements Tool {
       this.rotateDrag = null;
       this.groupController.release();
     }
+    if (this.marqueeDrag) {
+      this.marqueeDrag = null;
+      this.marqueeOverlay.detach();
+    }
     if (this.pendingPeel) {
       this.cleanupPendingPeel(ctx);
     }
@@ -691,6 +735,53 @@ export class GrabTool implements Tool {
       // Reply OK + user still holding. update() will pick up the transition
       // to Carry once the new card's heldBy === self seat.
     });
+  }
+
+  // Promote a `pendingEmpty` press to an in-flight marquee gesture. The
+  // overlay attaches; per-frame onMove refreshes the rect + the candidate
+  // set. Release commits via `onMarqueeCommit`.
+  private beginMarquee(e: ToolPointerEvent, ctx: ToolContext): void {
+    const pe = this.pendingEmpty;
+    if (!pe) return;
+    this.pendingEmpty = null;
+    this.marqueeDrag = {
+      startClientX: pe.startX,
+      startClientY: pe.startY,
+      modifier:     pe.modifier,
+      candidates:   new Set(),
+    };
+    this.marqueeOverlay.attach();
+    this.updateMarquee(e, ctx);
+  }
+
+  // Per-move marquee refresh: redraw the overlay and recompute the candidate
+  // set against the current screen rect. Eligibility filter: skip the Table
+  // singleton and any entity with `isContained === true` (deck cards, bag
+  // items, hand-zone members). `heldBy` is not filtered — consistent with
+  // shift-click; group-drag drops failed claims at `tryHold` time.
+  private updateMarquee(e: ToolPointerEvent, ctx: ToolContext): void {
+    const md = this.marqueeDrag;
+    if (!md) return;
+    const rect = ctx.element.getBoundingClientRect();
+    const startLocal = { x: md.startClientX - rect.left, y: md.startClientY - rect.top };
+    const endLocal   = { x: e.clientX        - rect.left, y: e.clientY        - rect.top };
+    this.marqueeOverlay.update(startLocal, endLocal);
+
+    const ndcRect = ndcRectFromScreen(
+      { x: md.startClientX, y: md.startClientY },
+      { x: e.clientX,       y: e.clientY       },
+      rect,
+    );
+    const inputs: CandidateInput[] = [];
+    ctx.world.forEach((h) => {
+      if (h.id === TABLE_ENTITY_ID) return;
+      if (h.entity.isContained) return;
+      const t = h.get(TransformComponent);
+      const obj = t?.object3d;
+      if (!obj) return;
+      inputs.push({ id: h.id, worldPosition: obj.position });
+    });
+    md.candidates = entitiesInMarquee(inputs, ndcRect, ctx.camera);
   }
 
   // Cursor angle around the centroid in the XZ (table) plane. Pointer ray

@@ -13,6 +13,7 @@ import { AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { FlickArrowAttachment } from './FlickArrowAttachment';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
+import { MarqueeOverlay } from './MarqueeOverlay';
 import { type Tool } from './types';
 import { type SelectionClickModifier } from '../SelectionStore';
 
@@ -24,12 +25,17 @@ export { AxisGizmoAttachment } from './AxisGizmoAttachment';
 export { FlickArrowAttachment } from './FlickArrowAttachment';
 export { HitboxAttachment } from './HitboxAttachment';
 export { DropPreviewGhost } from './DropPreviewGhost';
+export { MarqueeOverlay } from './MarqueeOverlay';
 export type { Tool, ToolContext, ToolPointerEvent, ToolAttachment } from './types';
 
 export interface ToolFactoryDeps {
-  scene:     THREE.Scene;
-  moveGizmo: MoveGizmo;
-  onSelect:  (id: string | null, modifier: SelectionClickModifier) => void;
+  scene:           THREE.Scene;
+  // Canvas container — the marquee overlay attaches into this element so it
+  // floats above the canvas without leaking outside the room's viewport.
+  canvasContainer: HTMLElement;
+  moveGizmo:       MoveGizmo;
+  onSelect:        (id: string | null, modifier: SelectionClickModifier) => void;
+  onMarqueeCommit: (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void;
 }
 
 export interface ToolFactory {
@@ -53,7 +59,9 @@ export const TOOL_CATALOGUE: ToolFactory[] = [
         new AxisGizmoAttachment(deps.scene, deps.moveGizmo, rotateGizmo),
         new HitboxAttachment(deps.scene),
         new DropPreviewGhost(deps.scene),
+        new MarqueeOverlay(deps.canvasContainer),
         deps.onSelect,
+        deps.onMarqueeCommit,
       );
     },
   },

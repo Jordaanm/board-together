@@ -27,7 +27,7 @@ import { type ContextMenuRequest, dispatchAction, dispatchMenuAction } from '../
 import { type MenuItem } from '../entity/EntityComponent';
 import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
-import { applySelectionClick, SelectionStore, type SelectionClickModifier } from '../input/SelectionStore';
+import { applySelectionClick, applySelectionMarquee, SelectionStore, type SelectionClickModifier } from '../input/SelectionStore';
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
@@ -174,6 +174,7 @@ export function Room({ roomId, isHost }: Props) {
   const isMenuOpenRef      = useRef<() => boolean>(() => false);
   const freeCameraRef      = useRef<(on: boolean) => void>(noop);
   const onSelectRef        = useRef<(id: string | null, modifier: SelectionClickModifier) => void>(noop);
+  const onMarqueeCommitRef = useRef<(candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void>(noop);
   const setSelectionRef    = useRef<(ids: ReadonlySet<string>) => void>(noop);
   const onEntityRemovedRef = useRef<(id: string) => void>(noop);
   const setActiveToolRef   = useRef<(toolId: string) => boolean>(() => false);
@@ -203,6 +204,13 @@ export function Room({ roomId, isHost }: Props) {
     selectionStore.setState(applySelectionClick({
       state:    selectionStore.ids(),
       targetId: id,
+      modifier,
+    }));
+  };
+  onMarqueeCommitRef.current = (candidates, modifier) => {
+    selectionStore.setState(applySelectionMarquee({
+      state:    selectionStore.ids(),
+      candidates,
       modifier,
     }));
   };
@@ -833,6 +841,7 @@ export function Room({ roomId, isHost }: Props) {
         isMenuOpenRef={isMenuOpenRef}
         freeCameraRef={freeCameraRef}
         onSelectRef={onSelectRef}
+        onMarqueeCommitRef={onMarqueeCommitRef}
         setSelectionRef={setSelectionRef}
         onEntityRemovedRef={onEntityRemovedRef}
         setActiveToolRef={setActiveToolRef}

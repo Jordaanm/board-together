@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { MarqueeOverlay } from './MarqueeOverlay';
 import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
@@ -101,7 +102,12 @@ describe('GrabTool — Table click-through (slice 5)', () => {
     const hitboxAttachment = new HitboxAttachment(scene);
     const dropPreviewGhost = new DropPreviewGhost(scene);
     selectCalls = [];
-    tool = new GrabTool(moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost, (id: string | null) => selectCalls.push(id));
+    tool = new GrabTool(
+      moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost,
+      new MarqueeOverlay(element),
+      (id: string | null) => selectCalls.push(id),
+      () => {},
+    );
 
     table = new FakeHandle('table-1', { table: true });
     scene.add(table.obj);

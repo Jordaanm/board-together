@@ -72,6 +72,10 @@ interface Props {
   isMenuOpenRef:       MutableRefObject<() => boolean>;
   freeCameraRef:       MutableRefObject<(on: boolean) => void>;
   onSelectRef:         MutableRefObject<(id: string | null, modifier: SelectionClickModifier) => void>;
+  // Fired when a marquee gesture commits — sibling of onSelectRef for the
+  // set-based release path. Room runs applySelectionMarquee against the
+  // SelectionStore and pushes the result.
+  onMarqueeCommitRef:  MutableRefObject<(candidates: ReadonlySet<string>, modifier: SelectionClickModifier) => void>;
   setSelectionRef:     MutableRefObject<(ids: ReadonlySet<string>) => void>;
   // Canvas → Room callback fired when an entity in the current selection
   // is removed from the world. Room responds by dropping the id from the
@@ -106,7 +110,7 @@ export function ThreeCanvas({
   onContextMenuRef,
   isMenuOpenRef,
   freeCameraRef,
-  onSelectRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+  onSelectRef, onMarqueeCommitRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
   setShowHitboxesRef,
@@ -311,12 +315,18 @@ export function ThreeCanvas({
 
     const selectCallback = (id: string | null, modifier: SelectionClickModifier) =>
       onSelectRef.current(id, modifier);
+    const marqueeCommitCallback = (candidates: ReadonlySet<string>, modifier: SelectionClickModifier) =>
+      onMarqueeCommitRef.current(candidates, modifier);
 
     // ── Input wiring ────────────────────────────────────────────────────
     // ToolDispatcher owns pointer events and routes left-click to the active
     // tool. Tool catalogue is a static array (issue 2a — only GrabTool today).
     const tools: Tool[] = TOOL_CATALOGUE.map(f => f.create({
-      scene, moveGizmo, onSelect: selectCallback,
+      scene,
+      canvasContainer: container,
+      moveGizmo,
+      onSelect:        selectCallback,
+      onMarqueeCommit: marqueeCommitCallback,
     }));
     const grabTool = tools.find(t => t.id === 'grab') as GrabTool;
     const dispatcher = new ToolDispatcher({
@@ -633,7 +643,7 @@ export function ThreeCanvas({
     onContextMenuRef,
     isMenuOpenRef,
     freeCameraRef,
-    onSelectRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+    onSelectRef, onMarqueeCommitRef, setSelectionRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
     setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);

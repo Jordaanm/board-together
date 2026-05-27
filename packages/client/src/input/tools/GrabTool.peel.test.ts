@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { MarqueeOverlay } from './MarqueeOverlay';
 import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
@@ -187,7 +188,12 @@ beforeEach(() => {
   const attachment = new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo);
   const hitboxAttachment = new HitboxAttachment(scene);
   const dropPreviewGhost = new DropPreviewGhost(scene);
-  tool = new GrabTool(moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost, () => {});
+  tool = new GrabTool(
+    moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost,
+    new MarqueeOverlay(canvas),
+    () => {},
+    () => {},
+  );
 });
 
 afterEach(() => {

@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { MarqueeOverlay } from './MarqueeOverlay';
 import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
@@ -97,7 +98,9 @@ describe('GrabTool — modifier-key click forwarding', () => {
       new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo),
       new HitboxAttachment(scene),
       new DropPreviewGhost(scene),
+      new MarqueeOverlay(element),
       (id: string | null, modifier: SelectionClickModifier) => calls.push({ id, modifier }),
+      () => {},
     );
 
     die = new FakeHandle('die-1');
