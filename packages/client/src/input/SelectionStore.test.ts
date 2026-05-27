@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { applySelectionClick, SelectionStore } from './SelectionStore';
+import { applySelectionClick, applySelectionMarquee, SelectionStore } from './SelectionStore';
 
 describe('applySelectionClick — full click matrix', () => {
   // ── empty target (null) ────────────────────────────────────────────────
@@ -67,6 +67,71 @@ describe('applySelectionClick — full click matrix', () => {
     const next = applySelectionClick({ state, targetId: 'b', modifier: 'shift' });
     expect(next).not.toBe(state);
     expect([...state]).toEqual(['a']);
+  });
+});
+
+describe('applySelectionMarquee — release-time matrix', () => {
+  test('plain replaces selection with candidates', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a', 'b']),
+      candidates: new Set(['c', 'd']),
+      modifier:   'plain',
+    });
+    expect([...next].sort()).toEqual(['c', 'd']);
+  });
+
+  test('plain with empty candidates clears the selection', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a', 'b']),
+      candidates: new Set(),
+      modifier:   'plain',
+    });
+    expect(next.size).toBe(0);
+  });
+
+  test('shift unions candidates into the existing selection', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a', 'b']),
+      candidates: new Set(['b', 'c']),
+      modifier:   'shift',
+    });
+    expect([...next].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  test('shift with empty candidates is a no-op', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a']),
+      candidates: new Set(),
+      modifier:   'shift',
+    });
+    expect([...next]).toEqual(['a']);
+  });
+
+  test('ctrl toggles each candidate', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a', 'b']),
+      candidates: new Set(['b', 'c']),
+      modifier:   'ctrl',
+    });
+    expect([...next].sort()).toEqual(['a', 'c']);
+  });
+
+  test('ctrl with empty candidates is a no-op', () => {
+    const next = applySelectionMarquee({
+      state:      new Set(['a']),
+      candidates: new Set(),
+      modifier:   'ctrl',
+    });
+    expect([...next]).toEqual(['a']);
+  });
+
+  test('never mutates the input state or candidate set', () => {
+    const state      = new Set(['a']);
+    const candidates = new Set(['b']);
+    const next = applySelectionMarquee({ state, candidates, modifier: 'shift' });
+    expect(next).not.toBe(state);
+    expect([...state]).toEqual(['a']);
+    expect([...candidates]).toEqual(['b']);
   });
 });
 

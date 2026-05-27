@@ -36,6 +36,33 @@ export function applySelectionClick(input: SelectionClickInput): Set<string> {
   return new Set([...state, targetId]);
 }
 
+export interface SelectionMarqueeInput {
+  state:      ReadonlySet<string>;
+  candidates: ReadonlySet<string>;
+  modifier:   SelectionClickModifier;
+}
+
+// Marquee-release reducer — lift of the click matrix from a single target to
+// a set of candidates. Mirror semantics: plain replaces, shift unions, ctrl
+// toggles per-candidate. Returns a brand-new Set; never mutates inputs. An
+// empty candidate set under plain still clears the selection (matches the
+// "plain click on empty space clears" contract).
+export function applySelectionMarquee(input: SelectionMarqueeInput): Set<string> {
+  const { state, candidates, modifier } = input;
+  if (modifier === 'plain') return new Set(candidates);
+  if (modifier === 'shift') {
+    const next = new Set(state);
+    for (const id of candidates) next.add(id);
+    return next;
+  }
+  const next = new Set(state);
+  for (const id of candidates) {
+    if (next.has(id)) next.delete(id);
+    else              next.add(id);
+  }
+  return next;
+}
+
 export class SelectionStore {
   private _state    = new Set<string>();
   private listeners = new Set<() => void>();
