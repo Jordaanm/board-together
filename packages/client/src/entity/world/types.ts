@@ -89,6 +89,14 @@ export interface World {
   // entity is unknown or is the Table singleton.
   duplicateEntity(id: string): EntityHandle | null;
 
+  // Slice #7 of issues--multiselect.md — deep-clone N entities + their
+  // descendants with a single shared world offset applied to every clone,
+  // so inter-entity layout among the new copies matches the originals.
+  // Unknown ids and the Table singleton are skipped silently. Returns the
+  // new root ids in input order (after the filter); empty when nothing
+  // could be duplicated.
+  duplicateEntities(ids: readonly string[]): string[];
+
   // Entity-level field write (name, tags, owner). Issue #1 of
   // issues--property-schema-refactor.md. Replicates via entity-patch.
   updateEntityField(id: string, key: string, value: unknown): void;

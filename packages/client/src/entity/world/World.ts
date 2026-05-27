@@ -554,6 +554,108 @@ class WorldImpl implements World, HandleRouter {
     return rootCopy ? this.handleFor(rootCopy) : null;
   }
 
+  // Slice #7 of issues--multiselect.md — duplicate N entities with a single
+  // shared world offset so inter-entity layout is preserved. Skips unknown
+  // ids and the singleton Table (matches the single-entity duplicate gate).
+  // The shared idMap covers every duplicated entity + descendant, so a
+  // cross-tree reference (a card sitting in a duplicated deck whose owning
+  // entity is also being duplicated) gets remapped to the new id rather
+  // than left pointing at the original.
+  duplicateEntities(ids: readonly string[]): string[] {
+    if (this.role !== 'host') throw new Error('World.duplicateEntities is host-only');
+
+    const roots: Entity[] = [];
+    const rootSeen = new Set<string>();
+    for (const id of ids) {
+      if (rootSeen.has(id)) continue;
+      rootSeen.add(id);
+      const e = this.scene.getEntity(id);
+      if (!e) continue;
+      if (e.hasComponent(TableComponent)) continue;
+      roots.push(e);
+    }
+    if (roots.length === 0) return [];
+
+    this.history_?.push(`duplicate ${roots.length} entities`);
+
+    // BFS each root's descendant tree in parents-first order; the visited
+    // set means an entity contained inside another root (e.g. a card that
+    // lives in a duplicated deck) is enumerated once.
+    const order:   Entity[] = [];
+    const visited = new Set<string>();
+    for (const root of roots) {
+      const queue: Entity[] = [root];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        if (visited.has(cur.id)) continue;
+        visited.add(cur.id);
+        order.push(cur);
+        for (const childId of cur.children) {
+          const child = this.scene.getEntity(childId);
+          if (child) queue.push(child);
+        }
+      }
+    }
+
+    const idMap = new Map<string, string>();
+    for (const e of order) idMap.set(e.id, newGuid());
+
+    const rootIds = new Set(roots.map(r => r.id));
+    const OFFSET: [number, number, number] = [0.3, 0, 0.3];
+
+    const snaps: EntitySerialized[] = order.map(e => {
+      const base   = entityToSerialized(e);
+      const isRoot = rootIds.has(e.id);
+      const newId  = idMap.get(e.id)!;
+      const components: Record<string, object> = {};
+      for (const [typeId, state] of Object.entries(base.components)) {
+        components[typeId] = deepRemapIds(state, idMap) as object;
+      }
+      const remappedParent = base.parentId ? idMap.get(base.parentId) ?? null : null;
+      const out: EntitySerialized = {
+        id:            newId,
+        type:          base.type,
+        name:          isRoot ? `${base.name} (copy)` : base.name,
+        tags:          [...base.tags],
+        owner:         base.owner,
+        privateToSeat: base.privateToSeat,
+        // A root that's not in the original selection (e.g. duplicated as
+        // someone's child) is treated as a top-level root in the copy too.
+        parentId:      isRoot ? null : remappedParent,
+        children:      base.children.map(c => idMap.get(c)).filter((c): c is string => !!c),
+        isContained:   isRoot ? false : base.isContained,
+        components,
+      };
+      if (base.customData) {
+        out.customData = deepRemapIds(base.customData, idMap) as Record<string, string>;
+      }
+      const transform = out.components['transform'] as { position?: [number, number, number] } | undefined;
+      if (transform?.position) {
+        transform.position = [
+          transform.position[0] + OFFSET[0],
+          transform.position[1] + OFFSET[1],
+          transform.position[2] + OFFSET[2],
+        ];
+      }
+      return out;
+    });
+
+    const ctx: SpawnContext = { scene: this.threeScene, physics: this.physics, entityScene: this.scene };
+    this.scene.load(snaps, ctx);
+
+    // Mirror single-entity duplicate's children-first wire order — guests
+    // need parents to arrive last so their onSpawn finds child siblings
+    // already in the local scene.
+    if (this.replicator) {
+      for (let i = snaps.length - 1; i >= 0; i--) {
+        this.replicator.enqueueEntitySpawn(snaps[i]);
+      }
+    }
+    this.notify();
+
+    return roots.map(r => idMap.get(r.id)!);
+  }
+
   // Entity-level field write (issue #1 of property-schema-refactor). Writes
   // `name` / `tags` / `owner` directly on the Entity, replicates via
   // entity-patch, and pushes a history entry. Unknown keys no-op.

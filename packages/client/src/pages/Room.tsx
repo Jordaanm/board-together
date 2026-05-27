@@ -657,6 +657,14 @@ export function Room({ roomId, isHost }: Props) {
                 && selectedIds.has(contextMenu.entityId)
                 && item.kind !== 'colorpicker';
     const targetIds = fanOut ? [...selectedIds] : [contextMenu.entityId];
+    // Group Duplicate goes through the layout-preserving World path and
+    // swaps the active selection to the new copies. Skips the per-entity
+    // dispatch loop because each per-id call would apply its own offset.
+    if (fanOut && item.kind === 'action' && item.id === '__duplicate' && handle) {
+      const newIds = handle.controller.duplicateEntities(targetIds);
+      if (newIds.length > 0) selectionStore.setState(new Set(newIds));
+      return;
+    }
     for (const id of targetIds) {
       // Components decide effect — actions that can't apply silently skip.
       // The singleton Table is undeletable; skip it explicitly here rather
@@ -707,11 +715,15 @@ export function Room({ roomId, isHost }: Props) {
   };
   const handleGroupDuplicate = () => {
     if (!handle) return;
-    // Slice #7 lands the layout-preserving duplicate. For slice #4 the
-    // fan-out path simply calls the existing per-entity duplicate — every
-    // clone picks up its own internal offset, so inter-entity layout is
-    // not preserved yet. That gets fixed in #7.
-    fanOutSelection((id) => { handle.controller.duplicateEntity(id); });
+    if (selectedIds.size <= 1) {
+      fanOutSelection((id) => { handle.controller.duplicateEntity(id); });
+      return;
+    }
+    // Layout-preserving duplicate — single shared world offset applied to
+    // every clone. The new copies replace the active selection so the user
+    // can drag / rotate them as a group immediately.
+    const newIds = handle.controller.duplicateEntities([...selectedIds]);
+    if (newIds.length > 0) selectionStore.setState(new Set(newIds));
   };
 
   const openInspectDialog = async (deckId: string) => {

@@ -1279,6 +1279,70 @@ describe('World — updateEntityField / updateComponentProp (issue #1 of propert
     expect(() => pair!.host.updateComponentProp('c-4', 'card', 'nosuch', 1)).not.toThrow();
   });
 
+  test('duplicateEntities applies a single shared world offset, preserving inter-entity layout (issue #7)', () => {
+    pair = setup();
+    pair.host.spawn('die', { id: 'a', position: [0, 0.5, 0] });
+    pair.host.spawn('die', { id: 'b', position: [2, 0.5, 0] });
+    pair.host.spawn('die', { id: 'c', position: [0, 0.5, 3] });
+
+    const newIds = pair.host.duplicateEntities(['a', 'b', 'c']);
+    expect(newIds).toHaveLength(3);
+    // None of the new ids may collide with the originals.
+    for (const id of newIds) expect(['a', 'b', 'c']).not.toContain(id);
+
+    const posOf = (id: string) =>
+      pair!.host.get(id)!.get(TransformComponent)!.state.position;
+
+    // Each clone offset by the same delta — inter-entity layout matches the
+    // originals: B was +2 X of A, C was +3 Z of A; same after duplication.
+    const dA = [
+      posOf(newIds[0])[0] - posOf('a')[0],
+      posOf(newIds[0])[1] - posOf('a')[1],
+      posOf(newIds[0])[2] - posOf('a')[2],
+    ];
+    const dB = [
+      posOf(newIds[1])[0] - posOf('b')[0],
+      posOf(newIds[1])[1] - posOf('b')[1],
+      posOf(newIds[1])[2] - posOf('b')[2],
+    ];
+    const dC = [
+      posOf(newIds[2])[0] - posOf('c')[0],
+      posOf(newIds[2])[1] - posOf('c')[1],
+      posOf(newIds[2])[2] - posOf('c')[2],
+    ];
+    expect(dA[0]).toBeCloseTo(dB[0]); expect(dA[2]).toBeCloseTo(dB[2]);
+    expect(dA[0]).toBeCloseTo(dC[0]); expect(dA[2]).toBeCloseTo(dC[2]);
+
+    const newA = posOf(newIds[0]);
+    const newB = posOf(newIds[1]);
+    const newC = posOf(newIds[2]);
+    expect(newB[0] - newA[0]).toBeCloseTo(2);
+    expect(newC[2] - newA[2]).toBeCloseTo(3);
+  });
+
+  test('duplicateEntities silently skips the Table and unknown ids (issue #7)', () => {
+    pair = setup();
+    pair.host.spawn('die', { id: 'real', position: [0, 0.5, 0] });
+
+    const newIds = pair.host.duplicateEntities([TABLE_ENTITY_ID, 'missing', 'real']);
+    expect(newIds).toHaveLength(1);
+    expect(newIds[0]).not.toBe('real');
+    expect(pair.host.get(newIds[0])).toBeDefined();
+  });
+
+  test('duplicateEntities replicates host → guest (issue #7)', () => {
+    pair = setup();
+    pair.host.spawn('die', { id: 'd-1', position: [0, 0.5, 0] });
+    pair.host.spawn('die', { id: 'd-2', position: [1, 0.5, 0] });
+    pair.host.tick(0.016);
+
+    const newIds = pair.host.duplicateEntities(['d-1', 'd-2']);
+    pair.host.tick(0.016);
+
+    expect(pair.guest.get(newIds[0])).toBeDefined();
+    expect(pair.guest.get(newIds[1])).toBeDefined();
+  });
+
   test('replication patch shape: component-patches envelope carries the typed key', async () => {
     const { CardComponent } = await import('../components/CardComponent');
     void CardComponent;
