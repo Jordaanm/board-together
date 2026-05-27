@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { type MoveGizmo } from '../../scene/MoveGizmo';
+import { RotateGizmo } from '../../scene/RotateGizmo';
 import { GrabTool } from './GrabTool';
 import { PingTool } from './PingTool';
 import { FlickTool } from './FlickTool';
@@ -44,13 +45,17 @@ export const TOOL_CATALOGUE: ToolFactory[] = [
     id:     'grab',
     label:  'Grab',
     hotkey: '1',
-    create: (deps) => new GrabTool(
-      deps.moveGizmo,
-      new AxisGizmoAttachment(deps.scene, deps.moveGizmo),
-      new HitboxAttachment(deps.scene),
-      new DropPreviewGhost(deps.scene),
-      deps.onSelect,
-    ),
+    create: (deps) => {
+      const rotateGizmo = new RotateGizmo();
+      return new GrabTool(
+        deps.moveGizmo,
+        rotateGizmo,
+        new AxisGizmoAttachment(deps.scene, deps.moveGizmo, rotateGizmo),
+        new HitboxAttachment(deps.scene),
+        new DropPreviewGhost(deps.scene),
+        deps.onSelect,
+      );
+    },
   },
   {
     id:     'ping',

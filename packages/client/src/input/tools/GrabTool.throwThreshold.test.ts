@@ -13,6 +13,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
 import { MoveGizmo } from '../../scene/MoveGizmo';
@@ -135,10 +136,11 @@ beforeEach(() => {
   document.elementFromPoint = (() => null) as Document['elementFromPoint'];
 
   const moveGizmo  = new MoveGizmo();
-  const attachment = new AxisGizmoAttachment(scene, moveGizmo);
+  const rotateGizmo = new RotateGizmo();
+  const attachment = new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo);
   const hitboxAttachment = new HitboxAttachment(scene);
   ghost = new SpyGhost(scene);
-  tool  = new GrabTool(moveGizmo, attachment, hitboxAttachment, ghost, () => {});
+  tool  = new GrabTool(moveGizmo, rotateGizmo, attachment, hitboxAttachment, ghost, () => {});
 
   dragged = new FakeHandle('card-1', [0, 0.5, 0]);
   // A large flat "table" mesh under the cursor path so the resolver returns

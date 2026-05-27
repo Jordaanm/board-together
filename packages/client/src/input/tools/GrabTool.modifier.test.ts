@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
 import { MoveGizmo } from '../../scene/MoveGizmo';
@@ -87,14 +88,16 @@ describe('GrabTool — modifier-key click forwarding', () => {
     element.setPointerCapture = () => {};
     document.body.appendChild(element);
 
-    const moveGizmo = new MoveGizmo();
+    const moveGizmo   = new MoveGizmo();
+    const rotateGizmo = new RotateGizmo();
     calls = [];
     tool = new GrabTool(
       moveGizmo,
-      new AxisGizmoAttachment(scene, moveGizmo),
+      rotateGizmo,
+      new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo),
       new HitboxAttachment(scene),
       new DropPreviewGhost(scene),
-      (id, modifier) => calls.push({ id, modifier }),
+      (id: string | null, modifier: SelectionClickModifier) => calls.push({ id, modifier }),
     );
 
     die = new FakeHandle('die-1');

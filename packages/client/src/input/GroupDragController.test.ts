@@ -36,7 +36,21 @@ class FakeHandle {
   get(cls: { typeId: string }): unknown {
     if (cls === (TransformComponent as unknown as { typeId: string })
         || cls.typeId === 'transform') {
-      return { object3d: this.obj, state: { position: [this.obj.position.x, this.obj.position.y, this.obj.position.z], rotation: [0, 0, 0, 1] } };
+      const obj = this.obj;
+      return {
+        object3d: obj,
+        state: {
+          position: [obj.position.x, obj.position.y, obj.position.z],
+          rotation: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w],
+          scale:    [1, 1, 1],
+        },
+        // Mimic the real TransformComponent.setState — write to the
+        // Three.js object so subsequent reads pick up the new pose.
+        setState: (next: { position: [number, number, number]; rotation: [number, number, number, number] }) => {
+          obj.position.set(next.position[0], next.position[1], next.position[2]);
+          obj.quaternion.set(next.rotation[0], next.rotation[1], next.rotation[2], next.rotation[3]);
+        },
+      };
     }
     return undefined;
   }
@@ -137,5 +151,30 @@ describe('GroupDragController', () => {
     const member = new FakeHandle('B');
     ctrl.applyAnchorTranslation(1, 0, 1);
     expect(member.positions).toEqual([]);
+  });
+
+  test('applyPivotedRotation rotates anchor + members around the frozen pivot (issue #6)', async () => {
+    const THREE = await import('three');
+    // Three entities in a 2-unit row along +X. Pivot at the centroid (1,0,0).
+    const a = new FakeHandle('A', { position: [0, 0, 0] });
+    const b = new FakeHandle('B', { position: [1, 0, 0] });
+    const c = new FakeHandle('C', { position: [2, 0, 0] });
+    ctrl.begin(asHandle(a), [asHandle(b), asHandle(c)], 0);
+
+    // Rotate 90° around Y about the centroid.
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+    ctrl.applyPivotedRotation(q, [1, 0, 0]);
+
+    // After 90° CCW about Y around (1,0,0):
+    //   A:(0,0,0) → (1,0,1)
+    //   B:(1,0,0) → (1,0,0) (the pivot)
+    //   C:(2,0,0) → (1,0,-1)
+    // (Three.js applyQuaternion uses the convention that yields these signs.)
+    expect(a.obj.position.x).toBeCloseTo(1);
+    expect(a.obj.position.z).toBeCloseTo(1);
+    expect(b.obj.position.x).toBeCloseTo(1);
+    expect(b.obj.position.z).toBeCloseTo(0);
+    expect(c.obj.position.x).toBeCloseTo(1);
+    expect(c.obj.position.z).toBeCloseTo(-1);
   });
 });

@@ -20,12 +20,14 @@ import {
   Y_LERP_TIME_CONSTANT_S,
 } from '../../config/dragConfig';
 import { type MoveGizmo, type GizmoAxis } from '../../scene/MoveGizmo';
+import { type RotateGizmo } from '../../scene/RotateGizmo';
 import { projectRayOntoAxis } from '../axisDrag';
 import { resolveDragTarget } from '../DragTargetResolver';
 import { MeshComponent } from '../../entity/components/MeshComponent';
 import { type Tool, type ToolContext, type ToolPointerEvent } from './types';
 import { type SelectionClickModifier } from '../SelectionStore';
 import { GroupDragController } from '../GroupDragController';
+import { type Pose } from '../GroupTransform';
 import { type AxisGizmoAttachment } from './AxisGizmoAttachment';
 import { type HitboxAttachment } from './HitboxAttachment';
 import { type DropPreviewGhost } from './DropPreviewGhost';
@@ -58,6 +60,17 @@ type CarryDrag = {
   active: boolean;     // false while waiting for guest hold-claim echo
 };
 
+// Slice #6 — rotation drag of a multi-selection around the centroid gizmo.
+// Pivot is captured at gesture start and stays fixed; the start angle is
+// the cursor's angle around the pivot (XZ plane) the moment the ring was
+// picked. Per-frame, the current cursor angle drives `applyPivotedRotation`
+// with the total delta — never an incremental one — so float error doesn't
+// accumulate over the gesture.
+type RotateDrag = {
+  pivot:      [number, number, number];
+  startAngle: number;
+};
+
 // Short-press peel — issue #2 of issues--deck-peel.md. Lives parallel to
 // CarryDrag. Created when GrabTool's commit point sees `{ kind: 'peel' }`
 // from Entity.tryGrab; the world's peelAndHold returns a promise that
@@ -86,6 +99,7 @@ export class GrabTool implements Tool {
   private pendingPeel:  PendingPeel | null = null;
   private carry:        CarryDrag | null = null;
   private axisDrag:     AxisDrag  | null = null;
+  private rotateDrag:   RotateDrag | null = null;
 
   // Current rendered Y of the held entity. Eases toward `targetY` with a
   // ~Y_LERP_TIME_CONSTANT_S time constant in update().
@@ -124,6 +138,7 @@ export class GrabTool implements Tool {
 
   constructor(
     private readonly gizmo:             MoveGizmo,
+    private readonly rotateGizmo:       RotateGizmo,
     private readonly attachment:        AxisGizmoAttachment,
     private readonly hitboxAttachment:  HitboxAttachment,
     private readonly dropPreviewGhost:  DropPreviewGhost,
@@ -156,7 +171,8 @@ export class GrabTool implements Tool {
         || this.pendingEmpty !== null
         || this.pendingPeel !== null
         || this.carry !== null
-        || this.axisDrag !== null;
+        || this.axisDrag !== null
+        || this.rotateDrag !== null;
   }
 
   // ── Tool lifecycle ─────────────────────────────────────────────────────
@@ -182,7 +198,7 @@ export class GrabTool implements Tool {
   // ── Pointer hooks ──────────────────────────────────────────────────────
   onPress(e: ToolPointerEvent, ctx: ToolContext): void {
     if (e.button !== 0) return;
-    if (this.carry || this.axisDrag || this.pending || this.pendingEmpty || this.pendingPeel) return;
+    if (this.carry || this.axisDrag || this.rotateDrag || this.pending || this.pendingEmpty || this.pendingPeel) return;
 
     const modifier: SelectionClickModifier =
         e.shiftKey ? 'shift'
@@ -191,6 +207,20 @@ export class GrabTool implements Tool {
 
     // Gizmo arms take priority over the object body.
     ctx.raycaster.set(e.ray.origin, e.ray.direction);
+
+    // Rotate-ring pick (multi-select centroid gizmo). Engages a yaw drag
+    // against a frozen pivot — every member of the active selection rotates
+    // around the centroid as the cursor sweeps around it.
+    const centroid = this.attachment.getRotateCentroid();
+    if (centroid && this.rotateGizmo.pickRing(ctx.raycaster)) {
+      const seat = ctx.getSelfSeat();
+      if (seat === null) return;
+      if (this.beginGroupRotate(centroid, ctx, seat, e)) {
+        ctx.element.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+
     const axisName = this.gizmo.pickAxis(ctx.raycaster);
     if (axisName) {
       const target = this.gizmo.getTarget();
@@ -244,6 +274,15 @@ export class GrabTool implements Tool {
   }
 
   onMove(e: ToolPointerEvent, ctx: ToolContext): void {
+    if (this.rotateDrag) {
+      const angle = this.cursorAngleAroundPivot(e, this.rotateDrag.pivot);
+      if (angle === null) return;
+      const delta = angle - this.rotateDrag.startAngle;
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), delta);
+      this.groupController.applyPivotedRotation(q, this.rotateDrag.pivot);
+      return;
+    }
+
     if (this.axisDrag) {
       ctx.raycaster.set(e.ray.origin, e.ray.direction);
       const a = this.axisDrag;
@@ -291,6 +330,13 @@ export class GrabTool implements Tool {
 
   onRelease(e: ToolPointerEvent, ctx: ToolContext): void {
     if (e.button !== 0) return;
+
+    if (this.rotateDrag) {
+      this.rotateDrag = null;
+      this.groupController.release();
+      this.attachment.update(0);
+      return;
+    }
 
     if (this.axisDrag) {
       this.axisDrag.handle.release();
@@ -441,6 +487,25 @@ export class GrabTool implements Tool {
       this.hitboxAttachment.detach();
       return;
     }
+    // Multi-selection: attach the centroid rotate gizmo. Hitbox treatment
+    // stays per-entity-solo (the hitbox visualiser is a debug feature for
+    // single-entity inspection).
+    if (this.selectedIds.size > 1) {
+      const poses: Pose[] = [];
+      for (const id of this.selectedIds) {
+        const t = ctx.world.get(id)?.get(TransformComponent)?.object3d;
+        if (!t) continue;
+        const p = t.position;
+        const q = t.quaternion;
+        poses.push({
+          position: [p.x, p.y, p.z],
+          rotation: [q.x, q.y, q.z, q.w],
+        });
+      }
+      this.attachment.attachGroup(poses, ctx);
+      this.hitboxAttachment.detach();
+      return;
+    }
     if (this.selectedEntityId === null) {
       this.attachment.detach();
       this.hitboxAttachment.detach();
@@ -468,6 +533,10 @@ export class GrabTool implements Tool {
     if (this.axisDrag) {
       this.axisDrag.handle.release();
       this.axisDrag = null;
+    }
+    if (this.rotateDrag) {
+      this.rotateDrag = null;
+      this.groupController.release();
     }
     if (this.pendingPeel) {
       this.cleanupPendingPeel(ctx);
@@ -622,6 +691,50 @@ export class GrabTool implements Tool {
       // Reply OK + user still holding. update() will pick up the transition
       // to Carry once the new card's heldBy === self seat.
     });
+  }
+
+  // Cursor angle around the centroid in the XZ (table) plane. Pointer ray
+  // is projected onto a Y = pivot.y plane; returns null when the ray is
+  // parallel to the plane (no hit).
+  private cursorAngleAroundPivot(
+    e:     ToolPointerEvent,
+    pivot: [number, number, number],
+  ): number | null {
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pivot[1]);
+    const hit = new THREE.Vector3();
+    if (!e.ray.intersectPlane(plane, hit)) return null;
+    const dx = hit.x - pivot[0];
+    const dz = hit.z - pivot[2];
+    return Math.atan2(dz, dx);
+  }
+
+  // Set up a multi-selection yaw drag. Claims every selected entity through
+  // the GroupDragController (anchor = the first selected id, members = the
+  // rest). Anchor-claim failure cancels the gesture; member failures shrink
+  // the rotating subset, matching the slice-5 drag posture.
+  private beginGroupRotate(
+    pivot: [number, number, number],
+    ctx:   ToolContext,
+    seat:  SeatIndex,
+    e:     ToolPointerEvent,
+  ): boolean {
+    if (this.selectedIds.size < 2) return false;
+    const ids = [...this.selectedIds];
+    const anchorHandle = ctx.world.get(ids[0]);
+    if (!anchorHandle) return false;
+    const others: EntityHandle[] = [];
+    for (let i = 1; i < ids.length; i++) {
+      const h = ctx.world.get(ids[i]);
+      if (h) others.push(h);
+    }
+    if (!this.groupController.begin(anchorHandle, others, seat)) return false;
+    const angle = this.cursorAngleAroundPivot(e, pivot);
+    if (angle === null) {
+      this.groupController.release();
+      return false;
+    }
+    this.rotateDrag = { pivot, startAngle: angle };
+    return true;
   }
 
   private beginAxisDrag(handle: EntityHandle, axisName: GizmoAxis, ctx: ToolContext): void {

@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
 import { MoveGizmo } from '../../scene/MoveGizmo';
@@ -121,10 +122,11 @@ beforeEach(() => {
   document.body.appendChild(canvas);
 
   const moveGizmo = new MoveGizmo();
-  const attachment = new AxisGizmoAttachment(scene, moveGizmo);
+  const rotateGizmo = new RotateGizmo();
+  const attachment = new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo);
   const hitboxAttachment = new HitboxAttachment(scene);
   const dropPreviewGhost = new DropPreviewGhost(scene);
-  tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, dropPreviewGhost, () => {});
+  tool = new GrabTool(moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost, () => {});
 
   handle = new FakeHandle('card-1');
   scene.add(handle.obj);

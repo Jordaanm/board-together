@@ -12,9 +12,11 @@
 //     with the claimable subset. "Components decide effect" — same posture
 //     used by the rest of the action layer.
 
+import * as THREE from 'three';
 import { type EntityHandle } from '../entity/world';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TransformComponent } from '../entity/components/TransformComponent';
+import { PhysicsComponent } from '../entity/components/PhysicsComponent';
 import { applyOffsets, captureOffsets, type MemberOffset, type Pose } from './GroupTransform';
 
 export interface ActiveGroup {
@@ -85,6 +87,43 @@ export class GroupDragController {
     }
   }
 
+  // Pivoted rigid rotation around a frozen world-space pivot — slice 6's
+  // centroid gizmo. `deltaQuat` is the total rotation applied to the group
+  // since the gesture began (not an incremental delta), so the math is a
+  // pure function of the starting poses and the current accumulated angle:
+  // the centroid does not drift mid-gesture.
+  //
+  // Anchor + members are rotated; positions and orientations both transform.
+  // Pose updates write directly through TransformComponent.setState and the
+  // physics body so the change is visible the same frame. Guest replication
+  // for rotation is not wired yet — the change applies locally on each peer
+  // independently while the gesture runs; the host's next sync corrects.
+  applyPivotedRotation(deltaQuat: THREE.Quaternion, pivot: [number, number, number]): void {
+    const s = this.state;
+    if (!s) return;
+
+    // Anchor's new pose: position rotates around the pivot, rotation =
+    // deltaQuat * startRotation.
+    const newAnchorPos = rotatePointAround(s.anchorStartPose.position, pivot, deltaQuat);
+    const startQuat = new THREE.Quaternion(
+      s.anchorStartPose.rotation[0], s.anchorStartPose.rotation[1],
+      s.anchorStartPose.rotation[2], s.anchorStartPose.rotation[3],
+    );
+    const newAnchorQuat = deltaQuat.clone().multiply(startQuat);
+    const newAnchorPose: Pose = {
+      position: newAnchorPos,
+      rotation: [newAnchorQuat.x, newAnchorQuat.y, newAnchorQuat.z, newAnchorQuat.w],
+    };
+
+    writePose(s.anchor, newAnchorPose);
+    const next = applyOffsets(newAnchorPose, s.offsets);
+    for (const m of s.members) {
+      const p = next.get(m.id);
+      if (!p) continue;
+      writePose(m, p);
+    }
+  }
+
   // Releases the anchor + all members with a shared throw velocity. Returns
   // the list of claimed members so the caller can apply per-entity follow-up
   // (e.g. drop-target tween). Anchor release is included.
@@ -98,6 +137,40 @@ export class GroupDragController {
 
   // For tests / introspection.
   current(): ActiveGroup | null { return this.state; }
+}
+
+function rotatePointAround(
+  point: [number, number, number],
+  pivot: [number, number, number],
+  quat:  THREE.Quaternion,
+): [number, number, number] {
+  const v = new THREE.Vector3(
+    point[0] - pivot[0],
+    point[1] - pivot[1],
+    point[2] - pivot[2],
+  );
+  v.applyQuaternion(quat);
+  return [v.x + pivot[0], v.y + pivot[1], v.z + pivot[2]];
+}
+
+// Write a pose directly through TransformComponent + physics body. Bypasses
+// the EntityHandle.setPosition path (which is host/guest-aware for
+// translation only) because rotation has no equivalent wire RPC yet. Both
+// peers run this locally during a rotate gesture and the host's regular
+// transform sync reconciles after release.
+function writePose(handle: EntityHandle, pose: Pose): void {
+  const t = handle.get(TransformComponent);
+  if (!t) return;
+  t.setState({
+    position: [pose.position[0], pose.position[1], pose.position[2]],
+    rotation: [pose.rotation[0], pose.rotation[1], pose.rotation[2], pose.rotation[3]],
+    scale:    t.state.scale,
+  });
+  const phys = handle.get(PhysicsComponent);
+  if (phys?.body) {
+    phys.body.position.set(pose.position[0], pose.position[1], pose.position[2]);
+    phys.body.quaternion.set(pose.rotation[0], pose.rotation[1], pose.rotation[2], pose.rotation[3]);
+  }
 }
 
 function poseOf(handle: EntityHandle): Pose | null {

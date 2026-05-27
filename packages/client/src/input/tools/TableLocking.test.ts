@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { GrabTool } from './GrabTool';
 import { AxisGizmoAttachment } from './AxisGizmoAttachment';
+import { RotateGizmo } from '../../scene/RotateGizmo';
 import { HitboxAttachment } from './HitboxAttachment';
 import { DropPreviewGhost } from './DropPreviewGhost';
 import { MoveGizmo } from '../../scene/MoveGizmo';
@@ -95,11 +96,12 @@ describe('GrabTool — Table click-through (slice 5)', () => {
     document.body.appendChild(element);
 
     const moveGizmo  = new MoveGizmo();
-    const attachment = new AxisGizmoAttachment(scene, moveGizmo);
+    const rotateGizmo = new RotateGizmo();
+    const attachment = new AxisGizmoAttachment(scene, moveGizmo, rotateGizmo);
     const hitboxAttachment = new HitboxAttachment(scene);
     const dropPreviewGhost = new DropPreviewGhost(scene);
     selectCalls = [];
-    tool = new GrabTool(moveGizmo, attachment, hitboxAttachment, dropPreviewGhost, (id) => selectCalls.push(id));
+    tool = new GrabTool(moveGizmo, rotateGizmo, attachment, hitboxAttachment, dropPreviewGhost, (id: string | null) => selectCalls.push(id));
 
     table = new FakeHandle('table-1', { table: true });
     scene.add(table.obj);
@@ -141,7 +143,7 @@ describe('AxisGizmoAttachment — skips Table (slice 5)', () => {
 
   beforeEach(() => {
     scene = new THREE.Scene();
-    attachment = new AxisGizmoAttachment(scene, new MoveGizmo());
+    attachment = new AxisGizmoAttachment(scene, new MoveGizmo(), new RotateGizmo());
     ctx = {
       world: makeWorld([]),
       scene,
