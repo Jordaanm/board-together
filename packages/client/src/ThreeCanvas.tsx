@@ -88,6 +88,14 @@ interface Props {
   onEntityRemovedRef:  MutableRefObject<(id: string) => void>;
   setActiveToolRef:    MutableRefObject<(toolId: string) => boolean>;
   getActiveToolRef:    MutableRefObject<() => string>;
+  // Active camera's looking direction + right axis in world space — read by
+  // the selection-layout hotkey to derive grid yaw. Returns null before the
+  // canvas effect has mounted.
+  getCameraAxesRef?:   MutableRefObject<() => { forward: [number, number, number]; right: [number, number, number] } | null>;
+  // Whether the active tool reports an in-progress gesture (mid-drag, mid-
+  // marquee, mid-rotate, mid-flick-aim). The layout hotkey skips its action
+  // while this is true so it can't fight the gesture.
+  hasActiveGestureRef?: MutableRefObject<() => boolean>;
   setShowAllZonesRef:  MutableRefObject<(on: boolean) => void>;
   setShowSnapPointsRef: MutableRefObject<(on: boolean) => void>;
   setShowHitboxesRef:  MutableRefObject<(on: boolean) => void>;
@@ -115,6 +123,8 @@ export function ThreeCanvas({
   isMenuOpenRef,
   freeCameraRef,
   onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+  getCameraAxesRef,
+  hasActiveGestureRef,
   setShowAllZonesRef,
   setShowSnapPointsRef,
   setShowHitboxesRef,
@@ -385,6 +395,24 @@ export function ThreeCanvas({
       if (!tool) return false;
       return dispatcher.setActiveTool(tool);
     };
+
+    if (getCameraAxesRef) {
+      const _f = new THREE.Vector3();
+      const _r = new THREE.Vector3();
+      getCameraAxesRef.current = () => {
+        camera.updateMatrixWorld();
+        camera.getWorldDirection(_f);
+        // Camera right = column 0 of the world matrix.
+        _r.setFromMatrixColumn(camera.matrixWorld, 0);
+        return {
+          forward: [_f.x, _f.y, _f.z],
+          right:   [_r.x, _r.y, _r.z],
+        };
+      };
+    }
+    if (hasActiveGestureRef) {
+      hasActiveGestureRef.current = () => dispatcher.getActive()?.hasActiveGesture() ?? false;
+    }
 
     setSelectionRef.current = (ids) => {
       selectedIds = ids;
@@ -680,6 +708,8 @@ export function ThreeCanvas({
       setMarqueeCandidatesRef.current = () => {};
       setActiveToolRef.current   = () => false;
       getActiveToolRef.current   = () => 'grab';
+      if (getCameraAxesRef)    getCameraAxesRef.current    = () => null;
+      if (hasActiveGestureRef) hasActiveGestureRef.current = () => false;
       renderer.dispose();
       container.removeChild(renderer.domElement);
       ZoneComponent.selectedEntityId = null;
@@ -694,6 +724,7 @@ export function ThreeCanvas({
     isMenuOpenRef,
     freeCameraRef,
     onSelectRef, onMarqueeCommitRef, setSelectionRef, setMarqueeCandidatesRef, onEntityRemovedRef, setActiveToolRef, getActiveToolRef,
+    getCameraAxesRef, hasActiveGestureRef,
     setShowAllZonesRef, setShowSnapPointsRef, setShowHitboxesRef, setHandViewRef,
     onSceneReady,
   ]);

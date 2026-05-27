@@ -28,6 +28,8 @@ import { type MenuItem } from '../entity/EntityComponent';
 import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
 import { applySelectionClick, applySelectionMarquee, SelectionStore, type SelectionClickModifier } from '../input/SelectionStore';
+import { resolveLayoutHotkey, performSelectionLayout } from '../input/selectionLayoutHotkey';
+import { isTextInputFocused } from '../components/toolbarHotkey';
 import { type ChannelMessage } from '../net/SceneState';
 import { type SeatIndex } from '../seats/SeatLayout';
 import { TABLE_ENTITY_ID } from '../entity/tableEntity';
@@ -180,6 +182,8 @@ export function Room({ roomId, isHost }: Props) {
   const onEntityRemovedRef = useRef<(id: string) => void>(noop);
   const setActiveToolRef   = useRef<(toolId: string) => boolean>(() => false);
   const getActiveToolRef   = useRef<() => string>(() => activeToolId);
+  const getCameraAxesRef   = useRef<() => { forward: [number, number, number]; right: [number, number, number] } | null>(() => null);
+  const hasActiveGestureRef = useRef<() => boolean>(() => false);
   const setShowAllZonesRef = useRef<(on: boolean) => void>(noop);
   const setShowSnapPointsRef = useRef<(on: boolean) => void>(noop);
   const setShowHitboxesRef = useRef<(on: boolean) => void>(noop);
@@ -553,6 +557,34 @@ export function Room({ roomId, isHost }: Props) {
     setSelectionRef.current(selectedIds);
   }, [selectedIds]);
 
+  // Selection grid-layout hotkey — bare digit `1..9` arranges the active
+  // selection into a grid with the pressed digit as the column count.
+  // Parallel in shape to the toolbar hotkey, but lives in Room because it
+  // needs the SelectionStore, world handle, history service, and the
+  // canvas's camera axes / gesture predicate refs in one place.
+  useEffect(() => {
+    if (!handle) return;
+    const onKey = (e: KeyboardEvent) => {
+      const cols = resolveLayoutHotkey(
+        { key: e.key, repeat: e.repeat, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey },
+        { textInputFocused: isTextInputFocused(), activeGesture: hasActiveGestureRef.current() },
+      );
+      if (cols === null) return;
+      const axes = getCameraAxesRef.current();
+      if (!axes) return;
+      performSelectionLayout({
+        world:      handle.controller,
+        selection:  selectionStore.ids(),
+        cameraAxes: axes,
+        selfSeat:   getSelfSeatRef.current(),
+        history:    handle.controller.history,
+        columns:    cols,
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handle, selectionStore]);
+
   // Bundled-asset stack — both roles share an in-memory BundleStore (the
   // hot-path lookup for the AssetService bundled branch) and a persistent
   // BundleCache backed by IndexedDB. Host-authored uploads land pinned so
@@ -848,6 +880,8 @@ export function Room({ roomId, isHost }: Props) {
         onEntityRemovedRef={onEntityRemovedRef}
         setActiveToolRef={setActiveToolRef}
         getActiveToolRef={getActiveToolRef}
+        getCameraAxesRef={getCameraAxesRef}
+        hasActiveGestureRef={hasActiveGestureRef}
         setShowAllZonesRef={setShowAllZonesRef}
         setShowSnapPointsRef={setShowSnapPointsRef}
         setShowHitboxesRef={setShowHitboxesRef}
