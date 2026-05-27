@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, test, expect, afterEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { AnchorLayout } from './AnchorLayout';
 import { EditorPanel, type ObjectSummary } from './EditorPanel';
 import type { ComponentSchemaSection } from '../entity/propertySchema';
@@ -12,7 +12,11 @@ function renderPanel(objects: ObjectSummary[], selectedId: string | null) {
   return renderPanelMulti(objects, selectedIds);
 }
 
-function renderPanelMulti(objects: ObjectSummary[], selectedIds: ReadonlySet<string>) {
+function renderPanelMulti(
+  objects: ObjectSummary[],
+  selectedIds: ReadonlySet<string>,
+  overrides: Partial<React.ComponentProps<typeof EditorPanel>> = {},
+) {
   return render(
     <AnchorLayout>
       <EditorPanel
@@ -35,6 +39,10 @@ function renderPanelMulti(objects: ObjectSummary[], selectedIds: ReadonlySet<str
         onRemoveElement={noop}
         onDeleteEntity={noop}
         onDuplicateEntity={noop}
+        onGroupFlip={noop}
+        onGroupDelete={noop}
+        onGroupDuplicate={noop}
+        {...overrides}
       />
     </AnchorLayout>,
   );
@@ -194,6 +202,22 @@ describe('EditorPanel — Mesh section rendering (issue #2 of property-schema-re
     // Per-entity property rows are absent — no Color field, no Entity section.
     expect(container.textContent).not.toContain('Entity —');
     expect(container.querySelector('input[type="color"]')).toBeNull();
+  });
+
+  test('group Flip / Delete / Duplicate buttons fire the fan-out callbacks (issue #4)', () => {
+    const calls: string[] = [];
+    const objects: ObjectSummary[] = [
+      makeSummary({ id: 'a' }), makeSummary({ id: 'b' }),
+    ];
+    const { getByText } = renderPanelMulti(objects, new Set(['a', 'b']), {
+      onGroupFlip:      () => calls.push('flip'),
+      onGroupDelete:    () => calls.push('delete'),
+      onGroupDuplicate: () => calls.push('duplicate'),
+    });
+    fireEvent.click(getByText('Flip'));
+    fireEvent.click(getByText('Delete'));
+    fireEvent.click(getByText('Duplicate'));
+    expect(calls).toEqual(['flip', 'delete', 'duplicate']);
   });
 
   test('size-1 selection still renders the existing property editor', () => {

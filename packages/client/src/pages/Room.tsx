@@ -23,7 +23,7 @@ import { RichPresenceController } from '../discord/RichPresenceController';
 import { SEAT_COUNT } from '../seats/RoomStateManager';
 import { usePreferences } from '../preferences/usePreferences';
 import { TOOL_CATALOGUE } from '../input/tools';
-import { type ContextMenuRequest, dispatchMenuAction } from '../input/ContextMenuController';
+import { type ContextMenuRequest, dispatchAction, dispatchMenuAction } from '../input/ContextMenuController';
 import { type MenuItem } from '../entity/EntityComponent';
 import { aggregateContextMenu } from '../entity/contextMenu';
 import { aggregateEditorTools, dispatchEditorTool, type EditorToolItem } from '../entity/editorTools';
@@ -647,21 +647,71 @@ export function Room({ roomId, isHost }: Props) {
     args: object | undefined,
   ) => {
     if (!contextMenu) return;
-    dispatchMenuAction(item, args, contextMenu.entityId, {
-      isHost,
-      entity:   handle?.controller.get(contextMenu.entityId)?.entity,
-      send:     (msg) => sendRef.current(msg),
-      hostLocal: {
-        delete:        (id) => handle?.controller.despawn(id),
-        duplicate:     (id) => { handle?.controller.duplicateEntity(id); },
-        drawFromDeck:  (deckId, count, seat) => handle?.controller.drawFromDeck(deckId, count, seat),
-        shuffleDeck:   (deckId, seat) => handle?.controller.shuffleDeck(deckId, seat),
-        dealFromDeck:  (deckId, count, seat) => handle?.controller.dealFromDeck(deckId, count, seat),
-        spreadDeck:    (deckId, seat) => handle?.controller.spreadDeck(deckId, seat),
-        inspectDeck:   (deckId) => openInspectDialog(deckId),
-      },
-      selfSeat: getSelfSeatRef.current(),
+    // Multi-selection fan-out: when the right-clicked entity is part of the
+    // current multi-selection, the menu action applies to every selected id.
+    // A right-click on an unselected entity stays single-target — matches
+    // the typical desktop convention where right-clicking outside the
+    // selection acts on that one entity. Colorpicker is excluded from the
+    // fan-out: batch property editing is explicitly out of scope.
+    const fanOut = selectedIds.size > 1
+                && selectedIds.has(contextMenu.entityId)
+                && item.kind !== 'colorpicker';
+    const targetIds = fanOut ? [...selectedIds] : [contextMenu.entityId];
+    for (const id of targetIds) {
+      // Components decide effect — actions that can't apply silently skip.
+      // The singleton Table is undeletable; skip it explicitly here rather
+      // than throwing from the world layer.
+      if (item.kind === 'action' && item.id === '__delete' && id === TABLE_ENTITY_ID) continue;
+      dispatchMenuAction(item, args, id, {
+        isHost,
+        entity:   handle?.controller.get(id)?.entity,
+        send:     (msg) => sendRef.current(msg),
+        hostLocal: {
+          delete:        (eid) => handle?.controller.despawn(eid),
+          duplicate:     (eid) => { handle?.controller.duplicateEntity(eid); },
+          drawFromDeck:  (deckId, count, seat) => handle?.controller.drawFromDeck(deckId, count, seat),
+          shuffleDeck:   (deckId, seat) => handle?.controller.shuffleDeck(deckId, seat),
+          dealFromDeck:  (deckId, count, seat) => handle?.controller.dealFromDeck(deckId, count, seat),
+          spreadDeck:    (deckId, seat) => handle?.controller.spreadDeck(deckId, seat),
+          inspectDeck:   (deckId) => openInspectDialog(deckId),
+        },
+        selfSeat: getSelfSeatRef.current(),
+      });
+    }
+  };
+
+  // Editor panel group action callbacks. Each iterates the active selection
+  // and dispatches the per-entity verb; unsupported entities (Table for
+  // delete, anything without a tween for flip, etc.) silently no-op.
+  const fanOutSelection = (action: (id: string) => void) => {
+    for (const id of selectedIds) action(id);
+  };
+  const handleGroupFlip = () => {
+    if (!handle) return;
+    const selfSeat = getSelfSeatRef.current();
+    fanOutSelection((id) => {
+      dispatchAction(id, 'mesh', 'flip', {
+        isHost,
+        entity:   handle.controller.get(id)?.entity,
+        send:     (msg) => sendRef.current(msg),
+        selfSeat,
+      });
     });
+  };
+  const handleGroupDelete = () => {
+    if (!handle) return;
+    fanOutSelection((id) => {
+      if (id === TABLE_ENTITY_ID) return;
+      handle.controller.despawn(id);
+    });
+  };
+  const handleGroupDuplicate = () => {
+    if (!handle) return;
+    // Slice #7 lands the layout-preserving duplicate. For slice #4 the
+    // fan-out path simply calls the existing per-entity duplicate — every
+    // clone picks up its own internal offset, so inter-entity layout is
+    // not preserved yet. That gets fixed in #7.
+    fanOutSelection((id) => { handle.controller.duplicateEntity(id); });
   };
 
   const openInspectDialog = async (deckId: string) => {
@@ -900,6 +950,9 @@ export function Room({ roomId, isHost }: Props) {
               onRemoveElement={(sid, eid) => handle.controller.removeSurfaceElement(sid, eid)}
               onDeleteEntity={(id) => handle.controller.despawn(id)}
               onDuplicateEntity={(id) => { handle.controller.duplicateEntity(id); }}
+              onGroupFlip={handleGroupFlip}
+              onGroupDelete={handleGroupDelete}
+              onGroupDuplicate={handleGroupDuplicate}
             />
           </UIPanel>
         )}

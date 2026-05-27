@@ -75,6 +75,11 @@ interface Props {
   onRemoveElement:      (surfaceId: string, elementId: string) => void;
   onDeleteEntity:       (id: string) => void;
   onDuplicateEntity:    (id: string) => void;
+  // Multi-selection group actions. Fire on the entire `selectedIds` set;
+  // the caller iterates and decides effect per-entity.
+  onGroupFlip:          () => void;
+  onGroupDelete:        () => void;
+  onGroupDuplicate:     () => void;
 }
 
 const PANEL: React.CSSProperties = {
@@ -199,6 +204,7 @@ export function EditorPanel({
   onToggleFreeCamera, onToolAction,
   onMutateElement, onRemoveElement,
   onDeleteEntity, onDuplicateEntity,
+  onGroupFlip, onGroupDelete, onGroupDuplicate,
 }: Props) {
   const [open, setOpen]           = useState(true);
   const [collapsed, setCollapsed] = useState(false);
@@ -238,7 +244,12 @@ export function EditorPanel({
         <div style={BODY}>
           <SceneGraphList objects={objects} selectedIds={selectedIds} onSelect={onSelect} />
           {isMulti ? (
-            <GroupActionsSection size={selectedIds.size} />
+            <GroupActionsSection
+              size={selectedIds.size}
+              onFlip={onGroupFlip}
+              onDelete={onGroupDelete}
+              onDuplicate={onGroupDuplicate}
+            />
           ) : (
             <>
               <PropertyEditor
@@ -280,8 +291,16 @@ export function EditorPanel({
 }
 
 // Multi-selection panel: header showing "<N> selected" plus group action
-// buttons. Fan-out wiring lands in slice #4; for now the buttons are inert.
-function GroupActionsSection({ size }: { size: number }) {
+// buttons. Flip / Delete / Duplicate fan out per-entity via the parent's
+// callbacks; Rotate is wired in slice #6.
+function GroupActionsSection({
+  size, onFlip, onDelete, onDuplicate,
+}: {
+  size:        number;
+  onFlip:      () => void;
+  onDelete:    () => void;
+  onDuplicate: () => void;
+}) {
   const labelStyle: React.CSSProperties = {
     ...SECTION_LABEL,
     marginBottom: 8,
@@ -295,30 +314,15 @@ function GroupActionsSection({ size }: { size: number }) {
     <div style={SECTION}>
       <div style={labelStyle}>{size} selected</div>
       <div style={buttonRow}>
-        <button
-          type="button"
-          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
-          disabled
-          title="Group flip — coming in slice #4"
-        >Flip</button>
+        <button type="button" style={SPAWN_BTN} onClick={onFlip}>Flip</button>
         <button
           type="button"
           style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
           disabled
           title="Group rotate — coming in slice #6"
         >Rotate</button>
-        <button
-          type="button"
-          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
-          disabled
-          title="Group delete — coming in slice #4"
-        >Delete</button>
-        <button
-          type="button"
-          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
-          disabled
-          title="Group duplicate — coming in slice #7"
-        >Duplicate</button>
+        <button type="button" style={SPAWN_BTN} onClick={onDelete}>Delete</button>
+        <button type="button" style={SPAWN_BTN} onClick={onDuplicate}>Duplicate</button>
       </div>
     </div>
   );
