@@ -881,7 +881,7 @@ export function Room({ roomId, isHost }: Props) {
           <UIPanel anchor="top-left" order={10}>
             <EditorPanel
               objects={objects}
-              selectedId={selectedId}
+              selectedIds={selectedIds}
               isFreeCamera={isFreeCamera}
               manifestStore={manifestStore}
               selectedTools={selectedTools}

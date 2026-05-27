@@ -41,7 +41,10 @@ export interface ObjectSummary {
 
 interface Props {
   objects:              ObjectSummary[];
-  selectedId:           string | null;
+  // Multi-selection set. Single-entity callers can still pass a Set of one
+  // (or none); the panel derives the size-1 soloId for the existing
+  // property editor path. Size > 1 swaps to the GroupActionsSection.
+  selectedIds:          ReadonlySet<string>;
   isFreeCamera:         boolean;
   manifestStore:        ManifestStore | null;
   selectedTools:        EditorToolItem[];
@@ -187,7 +190,7 @@ const CHIP_X: React.CSSProperties = {
 };
 
 export function EditorPanel({
-  objects, selectedId, isFreeCamera,
+  objects, selectedIds, isFreeCamera,
   manifestStore, selectedTools,
   getTableBounds, roomSnapshot,
   editingSeatIndex, onSetEditingSeatIndex,
@@ -211,7 +214,12 @@ export function EditorPanel({
     );
   }
 
-  const selected = selectedId ? objects.find(o => o.id === selectedId) ?? null : null;
+  // soloId is the single-selection id (size === 1), used by the existing
+  // per-entity sections. Multi-selection (size > 1) replaces those sections
+  // with a GroupActionsSection — no per-entity property fields surface.
+  const soloId = selectedIds.size === 1 ? selectedIds.values().next().value ?? null : null;
+  const selected = soloId ? objects.find(o => o.id === soloId) ?? null : null;
+  const isMulti  = selectedIds.size > 1;
 
   return (
     <div style={PANEL}>
@@ -228,35 +236,41 @@ export function EditorPanel({
 
       {!collapsed && (
         <div style={BODY}>
-          <SceneGraphList objects={objects} selectedId={selectedId} onSelect={onSelect} />
-          <PropertyEditor
-            selected={selected}
-            manifestStore={manifestStore}
-            onUpdateEntityField={onUpdateEntityField}
-            onUpdateComponentProp={onUpdateComponentProp}
-            onDeleteEntity={onDeleteEntity}
-            onDuplicateEntity={onDuplicateEntity}
-          />
-          {selected?.id === TABLE_ENTITY_ID && (
-            <SeatsSection
-              table={selected}
-              roomSnapshot={roomSnapshot}
-              getTableBounds={getTableBounds}
-              editingSeatIndex={editingSeatIndex}
-              onSetEditingSeatIndex={onSetEditingSeatIndex}
-              onUpdateComponentProp={onUpdateComponentProp}
-            />
+          <SceneGraphList objects={objects} selectedIds={selectedIds} onSelect={onSelect} />
+          {isMulti ? (
+            <GroupActionsSection size={selectedIds.size} />
+          ) : (
+            <>
+              <PropertyEditor
+                selected={selected}
+                manifestStore={manifestStore}
+                onUpdateEntityField={onUpdateEntityField}
+                onUpdateComponentProp={onUpdateComponentProp}
+                onDeleteEntity={onDeleteEntity}
+                onDuplicateEntity={onDuplicateEntity}
+              />
+              {selected?.id === TABLE_ENTITY_ID && (
+                <SeatsSection
+                  table={selected}
+                  roomSnapshot={roomSnapshot}
+                  getTableBounds={getTableBounds}
+                  editingSeatIndex={editingSeatIndex}
+                  onSetEditingSeatIndex={onSetEditingSeatIndex}
+                  onUpdateComponentProp={onUpdateComponentProp}
+                />
+              )}
+              {selected?.surface && (
+                <SurfaceElementsSection
+                  surfaceId={selected.id}
+                  surface={selected.surface}
+                  manifestStore={manifestStore}
+                  onMutateElement={onMutateElement}
+                  onRemoveElement={onRemoveElement}
+                />
+              )}
+              <ToolsSection tools={selected ? selectedTools : []} onToolAction={onToolAction} />
+            </>
           )}
-          {selected?.surface && (
-            <SurfaceElementsSection
-              surfaceId={selected.id}
-              surface={selected.surface}
-              manifestStore={manifestStore}
-              onMutateElement={onMutateElement}
-              onRemoveElement={onRemoveElement}
-            />
-          )}
-          <ToolsSection tools={selected ? selectedTools : []} onToolAction={onToolAction} />
           <RollSection onRollDice={onRollDice} />
           <CameraSection isFreeCamera={isFreeCamera} onToggleFreeCamera={onToggleFreeCamera} />
         </div>
@@ -265,9 +279,54 @@ export function EditorPanel({
   );
 }
 
+// Multi-selection panel: header showing "<N> selected" plus group action
+// buttons. Fan-out wiring lands in slice #4; for now the buttons are inert.
+function GroupActionsSection({ size }: { size: number }) {
+  const labelStyle: React.CSSProperties = {
+    ...SECTION_LABEL,
+    marginBottom: 8,
+  };
+  const buttonRow: React.CSSProperties = {
+    display:             'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap:                 6,
+  };
+  return (
+    <div style={SECTION}>
+      <div style={labelStyle}>{size} selected</div>
+      <div style={buttonRow}>
+        <button
+          type="button"
+          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
+          disabled
+          title="Group flip — coming in slice #4"
+        >Flip</button>
+        <button
+          type="button"
+          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
+          disabled
+          title="Group rotate — coming in slice #6"
+        >Rotate</button>
+        <button
+          type="button"
+          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
+          disabled
+          title="Group delete — coming in slice #4"
+        >Delete</button>
+        <button
+          type="button"
+          style={{ ...SPAWN_BTN, cursor: 'not-allowed', opacity: 0.5 }}
+          disabled
+          title="Group duplicate — coming in slice #7"
+        >Duplicate</button>
+      </div>
+    </div>
+  );
+}
+
 function SceneGraphList({
-  objects, selectedId, onSelect,
-}: { objects: ObjectSummary[]; selectedId: string | null; onSelect: (id: string | null) => void }) {
+  objects, selectedIds, onSelect,
+}: { objects: ObjectSummary[]; selectedIds: ReadonlySet<string>; onSelect: (id: string | null) => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const toggle = (id: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -301,7 +360,7 @@ function SceneGraphList({
           depth={0}
           childrenOf={childrenOf}
           expanded={expanded}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           onToggle={toggle}
           onSelect={onSelect}
         />
@@ -311,20 +370,20 @@ function SceneGraphList({
 }
 
 function SceneGraphNode({
-  node, depth, childrenOf, expanded, selectedId, onToggle, onSelect,
+  node, depth, childrenOf, expanded, selectedIds, onToggle, onSelect,
 }: {
   node:        ObjectSummary;
   depth:       number;
   childrenOf:  Map<string | null, ObjectSummary[]>;
   expanded:    Set<string>;
-  selectedId:  string | null;
+  selectedIds: ReadonlySet<string>;
   onToggle:    (id: string) => void;
   onSelect:    (id: string | null) => void;
 }) {
   const kids   = childrenOf.get(node.id) ?? [];
   const hasKids = kids.length > 0;
   const isOpen = expanded.has(node.id);
-  const isSel  = node.id === selectedId;
+  const isSel  = selectedIds.has(node.id);
 
   return (
     <>
@@ -366,7 +425,7 @@ function SceneGraphNode({
           depth={depth + 1}
           childrenOf={childrenOf}
           expanded={expanded}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           onToggle={onToggle}
           onSelect={onSelect}
         />

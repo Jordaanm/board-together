@@ -8,11 +8,16 @@ import type { ComponentSchemaSection } from '../entity/propertySchema';
 afterEach(() => { cleanup(); });
 
 function renderPanel(objects: ObjectSummary[], selectedId: string | null) {
+  const selectedIds = selectedId === null ? new Set<string>() : new Set([selectedId]);
+  return renderPanelMulti(objects, selectedIds);
+}
+
+function renderPanelMulti(objects: ObjectSummary[], selectedIds: ReadonlySet<string>) {
   return render(
     <AnchorLayout>
       <EditorPanel
         objects={objects}
-        selectedId={selectedId}
+        selectedIds={selectedIds}
         isFreeCamera={false}
         manifestStore={null}
         selectedTools={[]}
@@ -158,6 +163,50 @@ describe('EditorPanel — Mesh section rendering (issue #2 of property-schema-re
     // (placeholder text, not a hidden Texture row).
     expect(guestRender.container.textContent).not.toContain('Texture');
     expect(guestRender.container.textContent).toContain('Sky');
+  });
+
+  test('size-0 selection shows the empty state (no Entity section)', () => {
+    const objects: ObjectSummary[] = [makeSummary({ id: 'a' }), makeSummary({ id: 'b' })];
+    const { container } = renderPanelMulti(objects, new Set());
+    // Empty selection: PropertyEditor renders its prompt; no Entity section.
+    expect(container.textContent).toContain('Select an object to edit its properties');
+    expect(container.textContent).not.toContain('Entity —');
+  });
+
+  test('size-N selection swaps to the group panel — no property fields', () => {
+    const meshSection: ComponentSchemaSection = {
+      typeId: 'mesh', label: 'Mesh',
+      state: { color: '#ff00ff', meshRef: 'prim:cube', textureRefs: {} },
+      entries: [{ key: 'color', label: 'Color', type: 'color' }],
+    };
+    const objects: ObjectSummary[] = [
+      makeSummary({ id: 'a', sections: [meshSection] }),
+      makeSummary({ id: 'b', sections: [meshSection] }),
+      makeSummary({ id: 'c', sections: [meshSection] }),
+    ];
+    const { container } = renderPanelMulti(objects, new Set(['a', 'b', 'c']));
+    expect(container.textContent).toContain('3 selected');
+    // Group action buttons present.
+    expect(container.textContent).toContain('Flip');
+    expect(container.textContent).toContain('Rotate');
+    expect(container.textContent).toContain('Delete');
+    expect(container.textContent).toContain('Duplicate');
+    // Per-entity property rows are absent — no Color field, no Entity section.
+    expect(container.textContent).not.toContain('Entity —');
+    expect(container.querySelector('input[type="color"]')).toBeNull();
+  });
+
+  test('size-1 selection still renders the existing property editor', () => {
+    const meshSection: ComponentSchemaSection = {
+      typeId: 'mesh', label: 'Mesh',
+      state: { color: '#123456', meshRef: 'prim:cube', textureRefs: {} },
+      entries: [{ key: 'color', label: 'Color', type: 'color' }],
+    };
+    const objects: ObjectSummary[] = [makeSummary({ id: 'a', sections: [meshSection] })];
+    const { container, getByDisplayValue } = renderPanelMulti(objects, new Set(['a']));
+    expect(container.textContent).toContain('Entity —');
+    expect(getByDisplayValue('#123456')).toBeDefined();
+    expect(container.textContent).not.toMatch(/\d+ selected/);
   });
 
   test('Entity section renders above component sections with Name / Owner / Tags', () => {
