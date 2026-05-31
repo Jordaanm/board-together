@@ -114,12 +114,24 @@ export class EditorPdfFacade {
   previousPage(): void {}
 }
 
+// Per-bag-entity facade exposed at `entity.bag`. Mutators are host-only
+// and no-op with a sandbox warning when called on a guest context.
+export class EditorBagFacade {
+  add(target: EditorEntityFacade | { id: string } | string | null | undefined): boolean { void target; return false; }
+  remove(target: EditorEntityFacade | { id: string } | string | null | undefined): boolean { void target; return false; }
+  pickRandom(): EditorEntityFacade | null { return null; }
+  contents(): EditorEntityFacade[] { return []; }
+  has(id: string): boolean { void id; return false; }
+  size(): number { return 0; }
+}
+
 export class EditorEntityFacade {
   declare readonly id:    string;
   declare readonly type:  string;
   declare readonly name:  string;
   declare readonly owner: EditorSeatIndex | null;
   declare readonly tags:  string[];
+  declare readonly bag:   EditorBagFacade | null;
   declare readonly pdf:   EditorPdfFacade | null;
 
   getComponent(typeId: string): EditorReadOnlyComponentView | undefined { void typeId; return undefined; }

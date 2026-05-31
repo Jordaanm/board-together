@@ -90,7 +90,16 @@
       "Bash(head -621 packages/server/src/signaling.test.ts)",
       "Bash(tail -n +813 packages/server/src/signaling.test.ts)",
       "Bash(cd d:/dev/virtual-table && git diff HEAD -- packages/server/src/signaling.test.ts > /tmp/sig-diff.patch && wc -l /tmp/sig-diff.patch && tail -50 /tmp/sig-diff.patch)",
-      "Bash(curl -s https://api.playboardgam.es/rooms)"
+      "Bash(curl -s https://api.playboardgam.es/rooms)",
+      "Bash(bunx vite *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\dev\\\\virtual-table\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20 FullName)",
+      "Bash(dir /s /b package.json tsconfig.json)",
+      "PowerShell(Set-Location D:\\\\dev\\\\virtual-table\\\\packages\\\\client; npx tsc --noEmit 2>&1 | Out-String | Select-String \"error TS\" -SimpleMatch | Measure-Object | ForEach-Object Count)",
+      "PowerShell(Set-Location D:\\\\dev\\\\virtual-table\\\\packages\\\\client; \\(npx tsc --noEmit 2>&1\\) -split \"`n\" | Where-Object { $_ -match \"error TS\" } | Measure-Object | ForEach-Object Count)",
+      "PowerShell(Set-Location D:\\\\dev\\\\virtual-table\\\\packages\\\\client; \\(npx tsc --noEmit 2>&1\\) -split \"`n\" | Where-Object { $_ -match \"error TS\" })",
+      "PowerShell(Set-Location D:\\\\dev\\\\virtual-table\\\\packages\\\\client; \\(npx tsc --noEmit 2>&1\\) -split \"`n\" | Where-Object { $_ -match \"error TS\" -and $_ -notmatch \"\\(DeckComponent.test|GrabTool.throwThreshold|script-globals\\)\" })",
+      "PowerShell(Set-Location D:\\\\dev\\\\virtual-table\\\\packages\\\\client; \\(npx tsc --noEmit 2>&1\\) -split \"`n\" | Where-Object { $_ -match \"error TS\" -and $_ -notmatch \"\\(DeckComponent.test|GrabTool.throwThreshold.test.ts\\\\\\(\\\\d+,1[34]\\\\\\)|script-globals\\)\" })"
     ],
     "additionalDirectories": [
       "\\tmp"

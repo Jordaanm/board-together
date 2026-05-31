@@ -10,6 +10,7 @@ import { DeckComponent, CARD_SLAB_HEIGHT, CARD_MASS, MAX_DECK_HEIGHT } from './D
 import { HandComponent } from './HandComponent';
 import { MeshComponent } from './MeshComponent';
 import { PhysicsComponent } from './PhysicsComponent';
+import { SeatIndex } from '../../seats/SeatLayout';
 
 let scene: SceneImpl;
 let ctx: SpawnContext;
@@ -202,7 +203,7 @@ describe('DeckComponent — context menu', () => {
     const deck = scene.spawn('deck', ctx);
     const deckC = deck.getComponent(DeckComponent)!;
     const ctxMenu = {
-      recipientSeat: 0, isHost: true, entity: deck,
+      recipientSeat: 0 as SeatIndex, isHost: true, entity: deck,
       preferences:   DEFAULT_PREFERENCES,
     };
     const before = deckC.getMenuControls(ctxMenu)
@@ -220,7 +221,7 @@ describe('DeckComponent — context menu', () => {
     const deck = scene.spawn('deck', ctx);
     const deckC = deck.getComponent(DeckComponent)!;
     const actionCtx = {
-      recipientSeat: 0, isHost: true, entity: deck,
+      recipientSeat: 0 as SeatIndex, isHost: true, entity: deck,
       preferences:   DEFAULT_PREFERENCES,
     };
     expect(deckC.state.showTopFace).toBe(false);

@@ -100,12 +100,22 @@ declare class PdfFacade {
   previousPage(): void;
 }
 
+declare class BagFacade {
+  add(target: EntityFacade | { id: string } | string | null | undefined): boolean;
+  remove(target: EntityFacade | { id: string } | string | null | undefined): boolean;
+  pickRandom(): EntityFacade | null;
+  contents(): EntityFacade[];
+  has(id: string): boolean;
+  size(): number;
+}
+
 declare class EntityFacade {
   readonly id: string;
   readonly type: string;
   readonly name: string;
   readonly owner: SeatIndex | null;
   readonly tags: string[];
+  readonly bag: BagFacade | null;
   readonly pdf: PdfFacade | null;
   getComponent(typeId: string): ReadOnlyComponentView | undefined;
   addEventListener(event: EntityEvent, cb: Listener): void;

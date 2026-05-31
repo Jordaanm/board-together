@@ -29,7 +29,7 @@ interface ReleaseCall { vx?: number; vy?: number; vz?: number }
 class FakeHandle {
   releases: ReleaseCall[] = [];
   entity: Entity;
-  obj: THREE.Object3D;
+  obj: THREE.Mesh;
 
   constructor(public id: string, position: [number, number, number] = [0, 0.5, 0]) {
     this.obj = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.7));
